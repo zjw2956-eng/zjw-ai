@@ -43,7 +43,9 @@ java -jar target/consultant-0.0.1-SNAPSHOT.jar
 
 ## 运行前置条件
 
-1. **MySQL 数据库** (端口 3307)
+1. **Java 17** - 项目使用 Java 17，确保已安装并配置 `JAVA_HOME` 环境变量
+
+2. **MySQL 数据库** (端口 3307)
    - 数据库名: `volunteer`
    - 用户名/密码: `root/123456` (见 `application.yaml`)
    - 需要创建表: `restaurant_reservation`，建表 SQL：
@@ -59,12 +61,12 @@ java -jar target/consultant-0.0.1-SNAPSHOT.jar
    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
    ```
 
-2. **Redis 服务** (端口 6379)
+3. **Redis 服务** (端口 6379)
    - 用于聊天记忆存储（ChatMemoryStore）
    - 用于向量数据库（EmbeddingStore）
    - 无需密码配置
 
-3. **阿里云 API 密钥**
+4. **阿里云 API 密钥**
    - 需要设置环境变量: `API-KEY`
    - 获取地址: https://dashscope.aliyun.com/
    - 设置方式:
