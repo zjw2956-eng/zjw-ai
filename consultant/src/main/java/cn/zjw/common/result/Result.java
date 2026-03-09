@@ -1,5 +1,5 @@
 package cn.zjw.common.result;
-
+import cn.zjw.common.result.ResultCode;
 import lombok.Data;
 
 /**
@@ -12,7 +12,7 @@ public class Result<T> {
     private T data;
 
     public static <T> Result<T> success() {
-        return null;
+        return new Result<>(ResultCode.SUCCESS_CODE, ResultCode.SUCCESS_MESSAGE, null);
     }
 
     public static <T> Result<T> success(T data) {
