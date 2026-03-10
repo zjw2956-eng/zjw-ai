@@ -51,3 +51,12 @@ mybatis-plus:
       logic-delete-field: isDeleted
       logic-delete-value: 1
       logic-not-delete-value: 0
+
+jwt:
+  secret: 2956195122
+  expire-hours: 72
+  header: Authorization
+
+sms:
+  code-expire-minutes: 5
+  code-length: 6
