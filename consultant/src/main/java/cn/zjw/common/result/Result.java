@@ -1,10 +1,7 @@
 package cn.zjw.common.result;
 import cn.zjw.common.result.ResultCode;
 import lombok.Data;
-import lombok.AllArgsConstructor;
 import lombok.Builder;
-import lombok.Data;
-import lombok.NoArgsConstructor;
 
 /**
  * 统一返回结果

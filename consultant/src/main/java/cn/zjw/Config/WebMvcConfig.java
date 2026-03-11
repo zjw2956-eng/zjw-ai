@@ -20,9 +20,12 @@ public class WebMvcConfig implements WebMvcConfigurer {
         registry.addInterceptor(authInterceptor)
                 .addPathPatterns("/api/**")
                 .excludePathPatterns(
-                        "/api/user/login",
-                        "/api/user/register",
-                        "/chat"
+                    "/api/user/login",
+                    "/api/user/register",
+                    "/chat",
+                    "/error",              // 错误页面
+                    "/swagger-ui/**",      // Swagger文档（如果用）
+                    "/v3/api-docs/**"      // Swagger API
                 );
     }
 }

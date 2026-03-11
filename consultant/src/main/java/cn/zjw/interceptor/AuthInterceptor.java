@@ -11,6 +11,8 @@ import org.springframework.web.servlet.HandlerInterceptor;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.extern.slf4j.Slf4j;
+import cn.zjw.common.constants.Constants;
+import org.springframework.data.redis.core.StringRedisTemplate;
 
 
 
@@ -23,6 +25,8 @@ public class AuthInterceptor implements HandlerInterceptor {
 
     @Autowired
     private JwtUtil jwtUtil;
+    @Autowired
+    private StringRedisTemplate redisTemplate;
 
     @Override
     public boolean preHandle(HttpServletRequest request, HttpServletResponse response, Object handler) {
@@ -35,6 +39,10 @@ public class AuthInterceptor implements HandlerInterceptor {
         }
         String token = auth.substring("Bearer ".length());
         Long userId=jwtUtil.parseUserId(token);
+        String cacheToken=redisTemplate.opsForValue().get(Constants.REDIS_USER_TOKEN + userId);
+        if(cacheToken==null || !token.equals(cacheToken)){
+            throw new UnauthorizedException("无效的token");
+        }
         UserContext.setCurrentUserId(userId);
         return true;
     }

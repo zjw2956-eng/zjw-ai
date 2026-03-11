@@ -80,10 +80,10 @@ java -jar target/consultant-0.0.1-SNAPSHOT.jar
    - `user_tag` - 用户标签表
    - `restaurant_reservation` - 餐厅预订表（AI Function Calling使用）
 
-3. **Redis 服务** (端口 6379)
+3. **Redis 服务** (端口 6380)
    - 用于聊天记忆存储（ChatMemoryStore）
    - 用于向量数据库（EmbeddingStore）
-   - 用于用户登录态存储（JWT Token）
+   - 用于用户登录态存储（JWT Token，key格式：`user:token:{userId}`）
    - 无需密码配置
 
 4. **阿里云 API 密钥**
@@ -241,9 +241,19 @@ langchain4j:
 
 ### 数据库配置
 
-- **MySQL**: `jdbc:mysql://localhost:3307/volunteer`
-- **Redis**: `localhost:6379`
-- MyBatis 配置了驼峰命名转换
+- **MySQL**: `jdbc:mysql://localhost:3307/food_ai_system`
+- **Redis**: `localhost:6380`
+- MyBatis-Plus 配置：
+  - 驼峰命名自动转换
+  - 逻辑删除支持（字段：isDeleted，删除值：1，未删除值：0）
+  - SQL 日志输出到控制台
+
+### JWT 配置
+
+- **密钥**: 配置在 `application.yaml` 的 `jwt.secret`
+- **过期时间**: 72 小时
+- **Token 格式**: `Authorization: Bearer <token>`
+- **存储方式**: Token 同时存储在 Redis 中（key: `user:token:{userId}`），用于校验和单点登录控制
 
 ## 项目结构
 
