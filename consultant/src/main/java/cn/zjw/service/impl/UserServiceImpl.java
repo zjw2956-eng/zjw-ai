@@ -6,6 +6,14 @@ import cn.zjw.pojo.dto.UserRegisterDTO;
 import cn.zjw.pojo.vo.UserVO;
 import cn.zjw.service.UserService;
 import lombok.extern.slf4j.Slf4j;
+import cn.zjw.common.utils.JwtUtil;
+import org.springframework.data.redis.core.StringRedisTemplate;
+import cn.zjw.common.constant.Constants;
+import cn.zjw.pojo.entity.User;
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import org.springframework.security.crypto.bcrypt.BCrypt;
+import java.util.concurrent.TimeUnit;
+
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
@@ -16,8 +24,16 @@ import org.springframework.stereotype.Service;
 @Slf4j
 public class UserServiceImpl implements UserService {
 
+
+    @Autowired
+    private StringRedisTemplate stringRedisTemplate;
+
+
     @Autowired
     private UserMapper userMapper;
+
+    @Autowired
+    private JwtUtil jwtUtil;
 
     @Override
     public void register(UserRegisterDTO dto) {
@@ -47,13 +63,36 @@ public class UserServiceImpl implements UserService {
 
     @Override
     public String login(UserLoginDTO dto) {
-        // TODO: 实现登录逻辑，返回JWT token
-        return null;
+        // 实现登录逻辑，返回JWT token
+        LambdaQueryWrapper<User> wrapper=new LambdaQueryWrapper<>();
+        wrapper.eq(User::getUsername,dto.getUsername());
+        User user=userMapper.selectOne(wrapper);
+        if(user==null){
+            throw new IllegalArgumentException("用户名不存在");
+        }
+        if(!BCrypt.checkpw(dto.getPassword(),user.getPassword())){
+            throw new IllegalArgumentException("密码错误");
+        }
+        String token=jwtUtil.generateToken(user.getId());
+        stringRedisTemplate.opsForValue().set(Constants.REDIS_USER_TOKEN + user.getId(), token, Constants.REDIS_EXPIRE_TIME,TimeUnit.SECONDS);
+        return token;
     }
 
     @Override
     public UserVO getUserInfo(Long userId) {
-        // TODO: 实现获取用户信息逻辑
-        return null;
+        // 实现获取用户信息逻辑
+        User user=userMapper.selectById(userId);
+        if(user==null){
+            throw new IllegalArgumentException("用户不存在");
+        }
+        UserVO userVO=new UserVO();
+        userVO.setId(user.getId());
+        userVO.setUsername(user.getUsername());
+        userVO.setPhone(user.getPhone());
+        userVO.setNickname(user.getNickname());
+        userVO.setAvatar(user.getAvatar());
+        userVO.setGender(user.getGender());
+        userVO.setBirthday(user.getBirthday());
+        return userVO;
     }
 }

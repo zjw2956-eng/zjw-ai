@@ -5,8 +5,10 @@ import dev.langchain4j.service.SystemMessage;
 import dev.langchain4j.service.UserMessage;
 import dev.langchain4j.service.spring.AiService;
 import dev.langchain4j.service.spring.AiServiceWiringMode;
+import org.springframework.context.annotation.Profile;
 import reactor.core.publisher.Flux;
 
+@Profile("ai")  // 只在 ai 环境下加载
 @AiService(
         wiringMode = AiServiceWiringMode.EXPLICIT,//手动装配
         chatModel = "openAiChatModel",//指定模型

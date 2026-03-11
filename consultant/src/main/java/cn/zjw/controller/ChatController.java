@@ -3,11 +3,13 @@ package cn.zjw.controller;
 import cn.zjw.aiservice.ConsultantService;
 import dev.langchain4j.model.openai.OpenAiChatModel;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.Profile;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import reactor.core.publisher.Flux;
 
 @RestController
+@Profile("ai")  // 只在 ai 环境下加载此控制器
 public class ChatController {
 
     @Autowired

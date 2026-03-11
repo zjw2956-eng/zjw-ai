@@ -4,13 +4,20 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 项目概述
 
-这是一个基于 Spring Boot 3.5.9 和 LangChain4j 的 AI 美食顾问聊天机器人应用。使用阿里云通义千问（Qwen）作为大语言模型，结合 RAG（检索增强生成）和 Function Calling 技术，提供智能美食咨询和餐厅预订服务。
+这是一个基于 Spring Boot 3.5.9 和 LangChain4j 的 **智能美食推荐与餐厅管理系统**。使用阿里云通义千问（Qwen）作为大语言模型，结合 RAG（检索增强生成）和 Function Calling 技术，提供智能美食咨询、餐厅预订、用户管理、订单管理等完整功能。
 
-**技术栈**: Spring Boot 3.5.9 + LangChain4j 1.0.1-beta6 + 通义千问 + Redis + MySQL + Vue 3
+**技术栈**: Spring Boot 3.5.9 + LangChain4j 1.0.1-beta6 + MyBatis-Plus 3.5.x + 通义千问 + Redis + MySQL + Vue 3
+
+**项目结构**: 项目代码位于 `consultant/` 子目录下
 
 ## 构建和运行命令
 
+**注意**: 所有命令需要在 `consultant/` 目录下执行
+
 ```bash
+# 进入项目目录
+cd consultant
+
 # 编译项目
 mvn clean compile
 
@@ -39,31 +46,44 @@ java -jar target/consultant-0.0.1-SNAPSHOT.jar
 
 **访问地址**:
 - 前端界面: http://localhost:8080/index.html
-- API 接口: http://localhost:8080/chat?memoryId={会话ID}&message={消息内容}
+- AI聊天接口: http://localhost:8080/chat?memoryId={会话ID}&message={消息内容}
+- 用户注册: POST http://localhost:8080/api/user/register
+- 用户登录: POST http://localhost:8080/api/user/login
+- 餐厅查询: GET http://localhost:8080/api/restaurant/page
 
 ## 运行前置条件
 
 1. **Java 17** - 项目使用 Java 17，确保已安装并配置 `JAVA_HOME` 环境变量
 
 2. **MySQL 数据库** (端口 3307)
-   - 数据库名: `volunteer`
+   - 数据库名: `food_ai_system`
    - 用户名/密码: `root/123456` (见 `application.yaml`)
-   - 需要创建表: `restaurant_reservation`，建表 SQL：
-   ```sql
-   CREATE TABLE restaurant_reservation (
-       id BIGINT PRIMARY KEY AUTO_INCREMENT,
-       name VARCHAR(100) NOT NULL COMMENT '预订人姓名',
-       phone VARCHAR(20) NOT NULL COMMENT '联系电话',
-       reservation_time DATETIME NOT NULL COMMENT '预订时间',
-       restaurant_name VARCHAR(200) NOT NULL COMMENT '餐厅名称',
-       people_count INT NOT NULL COMMENT '用餐人数',
-       special_request TEXT COMMENT '特殊要求'
-   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+   - 需要执行数据库初始化脚本（位于项目根目录 `sql/` 文件夹）：
+   ```bash
+   # 方式1：一键执行（推荐）
+   mysql -uroot -p123456 -P3307 < sql/all_in_one.sql
+
+   # 方式2：分步执行
+   mysql -uroot -p123456 -P3307 < sql/01_create_database_and_core_tables.sql
+   mysql -uroot -p123456 -P3307 < sql/02_create_other_tables.sql
+   mysql -uroot -p123456 -P3307 < sql/03_insert_test_data_users_restaurants.sql
+   mysql -uroot -p123456 -P3307 < sql/04_insert_test_data_dishes.sql
+   mysql -uroot -p123456 -P3307 < sql/05_insert_test_data_orders_reviews.sql
    ```
+
+   **数据库表结构**:
+   - `user` - 用户表
+   - `restaurant` - 餐厅表
+   - `dish` - 菜品表
+   - `order_info` - 订单表
+   - `review` - 评价表
+   - `user_tag` - 用户标签表
+   - `restaurant_reservation` - 餐厅预订表（AI Function Calling使用）
 
 3. **Redis 服务** (端口 6379)
    - 用于聊天记忆存储（ChatMemoryStore）
    - 用于向量数据库（EmbeddingStore）
+   - 用于用户登录态存储（JWT Token）
    - 无需密码配置
 
 4. **阿里云 API 密钥**
@@ -77,9 +97,52 @@ java -jar target/consultant-0.0.1-SNAPSHOT.jar
 
 ## 核心架构
 
-### 数据流图
+### 整体架构图
 
-一个完整的聊天请求流程：
+```
+┌─────────────────────────────────────────────────────────────┐
+│                        前端层 (Vue 3)                        │
+│  - index.html (AI聊天界面)                                   │
+│  - 用户注册/登录界面 (待开发)                                │
+│  - 餐厅浏览/预订界面 (待开发)                                │
+└─────────────────────────────────────────────────────────────┘
+                              ↓
+┌─────────────────────────────────────────────────────────────┐
+│                    Controller 层 (控制器)                    │
+│  - ChatController (AI聊天)                                   │
+│  - UserController (用户注册/登录/信息管理)                   │
+│  - RestaurantController (餐厅查询/详情)                      │
+│  - OrderController (订单管理)                                │
+└─────────────────────────────────────────────────────────────┘
+                              ↓
+┌─────────────────────────────────────────────────────────────┐
+│                     Service 层 (业务逻辑)                    │
+│  - ConsultantService (@AiService - AI服务)                  │
+│  - UserService (用户业务)                                    │
+│  - RestaurantService (餐厅业务)                              │
+│  - OrderService (订单业务)                                   │
+│  - FoodReservationService (预订业务)                         │
+└─────────────────────────────────────────────────────────────┘
+                              ↓
+┌─────────────────────────────────────────────────────────────┐
+│                    Mapper 层 (数据访问)                      │
+│  - UserMapper (MyBatis-Plus)                                 │
+│  - RestaurantMapper                                          │
+│  - OrderMapper                                               │
+│  - ReviewMapper                                              │
+│  - FoodReservationMapper                                     │
+└─────────────────────────────────────────────────────────────┘
+                              ↓
+┌─────────────────────────────────────────────────────────────┐
+│                      数据存储层                              │
+│  - MySQL (food_ai_system) - 业务数据                        │
+│  - Redis - 聊天记忆 + 向量数据库 + 用户Token                │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### AI聊天数据流图
+
+一个完整的AI聊天请求流程：
 ```
 用户前端 (index.html)
     ↓ GET /chat?memoryId=xxx&message=xxx
@@ -185,58 +248,151 @@ langchain4j:
 ## 项目结构
 
 ```
-src/main/java/cn/zjw/
-├── ConsultantApplication.java          # Spring Boot 启动类
-├── aiservice/
-│   └── ConsultantService.java          # AI 服务接口（核心）
-├── Config/
-│   └── CommonConfig.java               # RAG、记忆、向量库配置
-├── controller/
-│   └── ChatController.java             # 聊天 API 控制器
-├── mapper/
-│   └── FoodReservationMapper.java      # MyBatis 数据访问层
-├── pojo/
-│   └── FoodReservation.java            # 餐厅预订实体类
-├── repository/
-│   └── RedisChatMemoryStore.java       # Redis 聊天记忆实现
-├── service/
-│   └── FoodReservationService.java     # 餐厅预订业务逻辑
-└── tools/
-    └── FoodReservationTool.java        # AI 工具（Function Calling）
-
-src/main/resources/
-├── application.yaml                    # 应用配置
-├── system.txt                          # AI 系统提示词
-├── content/                            # RAG 知识库文档
-│   ├── 美食指南.txt
-│   ├── 健康饮食指南.txt
-│   ├── 成都小众美食攻略.txt
-│   ├── 家庭秘制红烧肉.txt
-│   └── 粤菜经典菜品制作.txt
-└── static/
-    └── index.html                      # Vue 单页应用前端
+D:\aizjw\aiwork\                        # 项目根目录
+├── consultant/                         # Spring Boot 应用目录
+│   ├── src/main/java/cn/zjw/
+│   │   ├── ConsultantApplication.java          # Spring Boot 启动类
+│   │   ├── aiservice/
+│   │   │   └── ConsultantService.java          # AI 服务接口（核心）
+│   │   ├── common/                             # 公共模块
+│   │   │   ├── constant/
+│   │   │   │   └── Constants.java              # 常量类
+│   │   │   ├── context/
+│   │   │   │   └── UserContext.java            # 用户上下文（ThreadLocal）
+│   │   │   ├── enums/
+│   │   │   │   └── OrderStatus.java            # 订单状态枚举
+│   │   │   ├── exception/
+│   │   │   │   ├── BusinessException.java      # 业务异常
+│   │   │   │   └── UnauthorizedException.java  # 未授权异常
+│   │   │   ├── result/
+│   │   │   │   ├── Result.java                 # 统一返回结果
+│   │   │   │   ├── ResultCode.java             # 返回码枚举
+│   │   │   │   └── PageResult.java             # 分页返回结果
+│   │   │   └── utils/
+│   │   │       └── JwtUtil.java                # JWT工具类
+│   │   ├── Config/
+│   │   │   ├── CommonConfig.java               # AI配置（RAG、记忆、向量库）
+│   │   │   ├── MybatisPlusConfig.java          # MyBatis-Plus配置
+│   │   │   └── WebMvcConfig.java               # Web MVC配置
+│   │   ├── controller/                         # 控制层
+│   │   │   ├── ChatController.java             # AI聊天控制器
+│   │   │   ├── UserController.java             # 用户控制器
+│   │   │   ├── RestaurantController.java       # 餐厅控制器
+│   │   │   └── OrderController.java            # 订单控制器
+│   │   ├── service/                            # 业务层
+│   │   │   ├── UserService.java                # 用户Service接口
+│   │   │   ├── RestaurantService.java          # 餐厅Service接口
+│   │   │   ├── OrderService.java               # 订单Service接口
+│   │   │   ├── FoodReservationService.java     # 餐厅预订业务逻辑
+│   │   │   └── impl/
+│   │   │       ├── UserServiceImpl.java        # 用户Service实现
+│   │   │       ├── RestaurantServiceImpl.java  # 餐厅Service实现
+│   │   │       └── OrderServiceImpl.java       # 订单Service实现
+│   │   ├── mapper/                             # 数据访问层
+│   │   │   ├── UserMapper.java                 # 用户Mapper
+│   │   │   ├── RestaurantMapper.java           # 餐厅Mapper
+│   │   │   ├── OrderMapper.java                # 订单Mapper
+│   │   │   ├── ReviewMapper.java               # 评价Mapper
+│   │   │   └── FoodReservationMapper.java      # 预订Mapper
+│   │   ├── pojo/                               # 实体类
+│   │   │   ├── entity/                         # 数据库实体
+│   │   │   │   ├── User.java                   # 用户实体
+│   │   │   │   ├── Restaurant.java             # 餐厅实体
+│   │   │   │   ├── Dish.java                   # 菜品实体
+│   │   │   │   ├── OrderInfo.java              # 订单实体
+│   │   │   │   ├── Review.java                 # 评价实体
+│   │   │   │   ├── UserTag.java                # 用户标签实体
+│   │   │   │   └── FoodReservation.java        # 餐厅预订实体
+│   │   │   ├── dto/                            # 数据传输对象
+│   │   │   │   ├── UserRegisterDTO.java        # 用户注册DTO
+│   │   │   │   ├── UserLoginDTO.java           # 用户登录DTO
+│   │   │   │   └── RestaurantQueryDTO.java     # 餐厅查询DTO
+│   │   │   └── vo/                             # 视图对象
+│   │   │       ├── UserVO.java                 # 用户信息VO
+│   │   │       └── RestaurantVO.java           # 餐厅信息VO
+│   │   ├── interceptor/                        # 拦截器
+│   │   │   └── AuthInterceptor.java            # 登录校验拦截器
+│   │   ├── handler/                            # 处理器
+│   │   │   ├── GlobalExceptionHandler.java     # 全局异常处理器
+│   │   │   └── MyMetaObjectHandler.java        # MyBatis-Plus自动填充
+│   │   ├── repository/
+│   │   │   └── RedisChatMemoryStore.java       # Redis 聊天记忆实现
+│   │   └── tools/
+│   │       └── FoodReservationTool.java        # AI 工具（Function Calling）
+│   ├── src/main/resources/
+│   │   ├── application.yaml                    # 应用配置
+│   │   ├── system.txt                          # AI 系统提示词
+│   │   ├── content/                            # RAG 知识库文档
+│   │   │   ├── 美食指南.txt
+│   │   │   ├── 健康饮食指南.txt
+│   │   │   ├── 成都小众美食攻略.txt
+│   │   │   ├── 家庭秘制红烧肉.txt
+│   │   │   └── 粤菜经典菜品制作.txt
+│   │   └── static/
+│   │       └── index.html                      # Vue 单页应用前端
+│   └── pom.xml                                 # Maven 依赖配置
+├── sql/                                        # 数据库初始化脚本
+│   ├── all_in_one.sql                          # 一键执行脚本
+│   ├── 01_create_database_and_core_tables.sql  # 创建数据库和核心表
+│   ├── 02_create_other_tables.sql              # 创建其他表
+│   ├── 03_insert_test_data_users_restaurants.sql # 插入用户和餐厅测试数据
+│   ├── 04_insert_test_data_dishes.sql          # 插入菜品测试数据
+│   └── 05_insert_test_data_orders_reviews.sql  # 插入订单和评价测试数据
+├── CLAUDE.md                                   # 项目技术文档（本文件）
+├── MVC架构说明.md                              # MVC架构搭建说明
+└── 项目升级规划.md                             # 项目升级规划路线图
 ```
 
 ## 开发注意事项
 
+### 项目目录说明
+- **所有代码开发工作在 `consultant/` 目录下进行**
+- **所有 Maven 命令需要在 `consultant/` 目录下执行**
+- SQL 脚本位于项目根目录的 `sql/` 文件夹
+
 ### 首次启动必看
 
-1. **向量库初始化**: 首次启动时 `CommonConfig.store()` 会自动加载 `resources/content/` 下的所有文档并向量化，这个过程可能需要 30-60 秒。后续启动会复用 Redis 中的向量数据。
-2. **清空向量库重建**: 如果需要完全重建向量库，需手动清空 Redis 中的相关键或重启 Redis。
+1. **数据库初始化**: 首次启动前必须执行 SQL 初始化脚本
+   ```bash
+   mysql -uroot -p123456 -P3307 < sql/all_in_one.sql
+   ```
+
+2. **向量库初始化**: 首次启动时 `CommonConfig.store()` 会自动加载 `resources/content/` 下的所有文档并向量化，这个过程可能需要 30-60 秒。后续启动会复用 Redis 中的向量数据。
+
+3. **清空向量库重建**: 如果需要完全重建向量库，需手动清空 Redis 中的相关键或重启 Redis。
+
+### 当前开发状态
+
+**✅ 已完成**:
+- MVC 架构框架搭建（43个Java文件）
+- 数据库表结构设计（7张表）
+- AI 聊天功能（RAG + Function Calling）
+- 统一返回结果封装
+- 全局异常处理
+- MyBatis-Plus 集成
+- JWT 工具类框架
+
+**🚧 待实现**:
+- 用户注册/登录的具体业务逻辑
+- JWT Token 生成和校验逻辑
+- 登录拦截器的 Token 校验
+- 餐厅查询/详情接口的具体实现
+- 订单管理接口的具体实现
+- 前端用户界面（目前只有AI聊天界面）
 
 ### 修改 RAG 知识库
 
-1. 在 `src/main/resources/content/` 目录添加或修改 txt 文件
+1. 在 `consultant/src/main/resources/content/` 目录添加或修改 txt 文件
 2. 重启应用，`CommonConfig.store()` 方法会自动重新加载和向量化文档
 3. 文档会被切分成 500 字符的块，重叠 100 字符
 
 ### 修改系统提示词
 
-编辑 `src/main/resources/system.txt` 文件，重启应用生效。
+编辑 `consultant/src/main/resources/system.txt` 文件，重启应用生效。
 
 ### 添加新的 AI 工具
 
-1. 在 `tools/` 包下创建新的工具类
+1. 在 `consultant/src/main/java/cn/zjw/tools/` 包下创建新的工具类
 2. 使用 `@Tool` 注解标记方法
 3. 在 `ConsultantService` 的 `@AiService` 注解中添加工具 Bean 名称
 
@@ -273,3 +429,27 @@ LangChain4j 的日志级别设置为 `debug`，会输出：
 - **向量检索性能**: Redis 向量搜索对于中小规模数据集（<10万条）性能良好，超大规模建议迁移到专业向量数据库如 Milvus
 - **流式响应延迟**: `qwen-plus` 模型首 token 延迟约 500-1000ms，可考虑使用 `qwen-turbo` 降低延迟
 - **记忆管理**: 当前保留 20 条消息，若对话很长可能导致 token 超限，可通过 `MessageWindowChatMemory` 的 `maxMessages` 参数调整
+
+## 下一步开发计划
+
+参考 `项目升级规划.md` 文档，按优先级实现以下功能：
+
+### 第一阶段：完善基础功能
+1. 实现用户注册/登录逻辑（JWT + Redis）
+2. 实现登录拦截器的 Token 校验
+3. 实现餐厅查询/详情接口
+4. 实现订单管理接口
+
+### 第二阶段：增强功能
+1. 添加用户标签系统（口味偏好）
+2. 实现评价系统
+3. 添加餐厅收藏功能
+4. 实现个性化推荐
+
+### 第三阶段：技术升级
+1. 集成消息队列（RabbitMQ/RocketMQ）
+2. 集成搜索引擎（Elasticsearch）
+3. 添加限流熔断（Sentinel）
+4. 添加分布式定时任务（XXL-Job）
+
+详细规划请查看 `项目升级规划.md`。

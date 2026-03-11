@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(cd consultant && mvn -v)",
+      "Bash(mvn spring-boot:run 2>&1 | head -50)",
+      "Bash(mvn spring-boot:run 2>&1 | head -80)",
+      "Bash(mvn spring-boot:run 2>&1 | grep -A 5 \"Started ConsultantApplication\\\\|ERROR\\\\|Exception\")",
+      "Bash(mvn spring-boot:run 2>&1 | tail -30)",
+      "Bash(mvn spring-boot:run 2>&1 | tail -40)",
+      "Bash(sleep 5 && netstat -ano | findstr \":8080\" | head -1)"
+    ]
+  }
+}
