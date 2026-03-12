@@ -1,6 +1,6 @@
 package cn.zjw.service;
 
-import cn.zjw.pojo.entity.Restaurant;
+import cn.zjw.pojo.vo.RestaurantVO;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 
 /**
@@ -8,12 +8,12 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
  */
 public interface RestaurantService {
     /**
-     * 分页查询餐厅
+     * 分页查询餐厅（返回VO）
      */
-    Page<Restaurant> page(Integer pageNum, Integer pageSize, String category);
+    Page<RestaurantVO> page(Integer pageNum, Integer pageSize, String category);
 
     /**
-     * 根据ID查询餐厅
+     * 根据ID查询餐厅详情
      */
-    Restaurant getById(Long id);
+    RestaurantVO getRestaurantById(Long id);
 }

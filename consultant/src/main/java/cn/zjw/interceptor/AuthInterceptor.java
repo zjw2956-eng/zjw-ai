@@ -11,7 +11,7 @@ import org.springframework.web.servlet.HandlerInterceptor;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.extern.slf4j.Slf4j;
-import cn.zjw.common.constants.Constants;
+import cn.zjw.common.constant.Constants;
 import org.springframework.data.redis.core.StringRedisTemplate;
 
 

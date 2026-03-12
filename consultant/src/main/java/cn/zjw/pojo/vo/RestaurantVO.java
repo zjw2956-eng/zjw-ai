@@ -1,0 +1,26 @@
+package cn.zjw.pojo.vo;
+import lombok.Builder;
+import lombok.AllArgsConstructor;
+import lombok.NoArgsConstructor;
+import java.math.BigDecimal;
+import lombok.Data;
+
+@Builder
+@AllArgsConstructor
+@NoArgsConstructor
+@Data
+public class RestaurantVO {
+    private Long id;
+    private String name;
+    private String category;
+    private String address;
+
+    private BigDecimal avgPrice;
+    private BigDecimal rating;
+    private String phone;
+    private String businessHours;
+    private String images;
+    private String description;
+    private Integer status;
+
+}

@@ -1,21 +1,22 @@
 package cn.zjw.service.impl;
 
+import cn.zjw.common.constant.Constants;
+import cn.zjw.common.exception.BusinessException;
+import cn.zjw.common.utils.JwtUtil;
 import cn.zjw.mapper.UserMapper;
 import cn.zjw.pojo.dto.UserLoginDTO;
 import cn.zjw.pojo.dto.UserRegisterDTO;
+import cn.zjw.pojo.entity.User;
 import cn.zjw.pojo.vo.UserVO;
 import cn.zjw.service.UserService;
-import lombok.extern.slf4j.Slf4j;
-import cn.zjw.common.utils.JwtUtil;
-import org.springframework.data.redis.core.StringRedisTemplate;
-import cn.zjw.common.constant.Constants;
-import cn.zjw.pojo.entity.User;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
-import org.springframework.security.crypto.bcrypt.BCrypt;
-import java.util.concurrent.TimeUnit;
-
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.security.crypto.bcrypt.BCrypt;
 import org.springframework.stereotype.Service;
+
+import java.util.concurrent.TimeUnit;
 
 /**
  * 用户Service实现
@@ -24,10 +25,8 @@ import org.springframework.stereotype.Service;
 @Slf4j
 public class UserServiceImpl implements UserService {
 
-
     @Autowired
     private StringRedisTemplate stringRedisTemplate;
-
 
     @Autowired
     private UserMapper userMapper;
@@ -37,23 +36,20 @@ public class UserServiceImpl implements UserService {
 
     @Override
     public void register(UserRegisterDTO dto) {
-        // 实现注册逻辑
-        LambdaQueryWrapper<User> wrapper=new LambdaQueryWrapper<>();
-        wrapper.eq(User::getUsername,dto.getUsername());
-        User existUser=userMapper.selectOne(wrapper);
-        if(existUser!=null){
-            throw new IllegalArgumentException("用户名已存在");
+        LambdaQueryWrapper<User> wrapper = new LambdaQueryWrapper<>();
+        wrapper.eq(User::getUsername, dto.getUsername());
+        if (userMapper.selectCount(wrapper) > 0) {
+            throw new BusinessException(400, "用户名已存在");
         }
-        LambdaQueryWrapper<User> wrapper2=new LambdaQueryWrapper<>();
-        wrapper2.eq(User::getPhone,dto.getPhone());
-        User existPhoneUser=userMapper.selectOne(wrapper2);
-        if(existPhoneUser!=null){
-            throw new IllegalArgumentException("手机号已存在");
-        }
-        // 密码加密
-        String encryptedPassword=BCrypt.hashpw(dto.getPassword(),BCrypt.gensalt());
 
-        User user=new User();
+        LambdaQueryWrapper<User> phoneWrapper = new LambdaQueryWrapper<>();
+        phoneWrapper.eq(User::getPhone, dto.getPhone());
+        if (userMapper.selectCount(phoneWrapper) > 0) {
+            throw new BusinessException(400, "手机号已注册");
+        }
+
+        String encryptedPassword = BCrypt.hashpw(dto.getPassword(), BCrypt.gensalt());
+        User user = new User();
         user.setUsername(dto.getUsername());
         user.setPhone(dto.getPhone());
         user.setPassword(encryptedPassword);
@@ -63,29 +59,31 @@ public class UserServiceImpl implements UserService {
 
     @Override
     public String login(UserLoginDTO dto) {
-        // 实现登录逻辑，返回JWT token
-        LambdaQueryWrapper<User> wrapper=new LambdaQueryWrapper<>();
-        wrapper.eq(User::getUsername,dto.getUsername());
-        User user=userMapper.selectOne(wrapper);
-        if(user==null){
-            throw new IllegalArgumentException("用户名不存在");
+        LambdaQueryWrapper<User> wrapper = new LambdaQueryWrapper<>();
+        wrapper.eq(User::getUsername, dto.getUsername());
+        User user = userMapper.selectOne(wrapper);
+        if (user == null) {
+            throw new BusinessException(400, "用户名不存在");
         }
-        if(!BCrypt.checkpw(dto.getPassword(),user.getPassword())){
-            throw new IllegalArgumentException("密码错误");
+        if (!BCrypt.checkpw(dto.getPassword(), user.getPassword())) {
+            throw new BusinessException(400, "密码错误");
         }
-        String token=jwtUtil.generateToken(user.getId());
-        stringRedisTemplate.opsForValue().set(Constants.REDIS_USER_TOKEN + user.getId(), token, Constants.REDIS_EXPIRE_TIME,TimeUnit.SECONDS);
+        String token = jwtUtil.generateToken(user.getId());
+        stringRedisTemplate.opsForValue().set(
+                Constants.REDIS_USER_TOKEN + user.getId(),
+                token,
+                Constants.REDIS_EXPIRE_TIME,
+                TimeUnit.SECONDS);
         return token;
     }
 
     @Override
     public UserVO getUserInfo(Long userId) {
-        // 实现获取用户信息逻辑
-        User user=userMapper.selectById(userId);
-        if(user==null){
-            throw new IllegalArgumentException("用户不存在");
+        User user = userMapper.selectById(userId);
+        if (user == null) {
+            throw new BusinessException(404, "用户不存在");
         }
-        UserVO userVO=new UserVO();
+        UserVO userVO = new UserVO();
         userVO.setId(user.getId());
         userVO.setUsername(user.getUsername());
         userVO.setPhone(user.getPhone());
