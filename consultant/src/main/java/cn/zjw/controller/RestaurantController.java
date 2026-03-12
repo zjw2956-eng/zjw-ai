@@ -48,4 +48,41 @@ public class RestaurantController {
         RestaurantVO restaurantVO = restaurantService.getRestaurantById(id);
         return Result.success(restaurantVO);
     }
+
+    /**
+     * 新增餐厅
+     */
+    @PostMapping("/add")
+    public Result<RestaurantVO> addRestaurant(@RequestBody  RestaurantDTO dto){
+        log.info("新增餐厅", dto);
+        try {
+            if(dto==null){
+                return Result.error("新增餐厅不能为空");
+            }
+            restaurantService.addRestaurant(dto);
+            return Result.success();
+        } catch (Exception e) {
+            // 处理异常
+            log.error("新增餐厅失败", e);
+            return Result.error(e.getMessage());
+        }
+    }
+
+    /**
+     * 修改餐厅
+     */
+    @PutMapping("/update")
+    public Result<RestaurantVO> updateRestaurant(@RequestBode RestaurantDTO dto){
+        try {
+            if(dto==null || dto.isBlank()){
+                return Result.error("修改餐厅不能为空");
+            }
+            restaurantService.updateRestaurant(dto);
+            return Result.success();
+        } catch (Exception e) {
+            // 处理异常
+            log.error("修改餐厅失败", e);
+            return Result.error(e.getMessage());
+        }
+    }
 }
