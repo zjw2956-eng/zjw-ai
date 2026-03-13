@@ -1,10 +1,10 @@
 package cn.zjw.controller;
 
-import cn.zjw.common.result.PageResult;
-import cn.zjw.common.result.Result;
+import cn.zjw.common.result.CommonResult;
+import cn.zjw.common.result.ResultCode;
+import cn.zjw.pojo.dto.RestaurantDTO;
 import cn.zjw.pojo.vo.RestaurantVO;
 import cn.zjw.service.RestaurantService;
-import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
@@ -21,20 +21,26 @@ public class RestaurantController {
     private RestaurantService restaurantService;
 
     /**
-     * 分页查询餐厅
+     * 分页查询餐厅，按评分降序
      *
-     * @param pageNum  页码，默认1
-     * @param pageSize 每页条数，默认10
-     * @param category 菜系筛选（可选）：川菜、粤菜、湘菜、日料、西餐等
+     * @param current 当前页码，默认1
+     * @param size    每页条数，默认10
      */
-    @GetMapping("/page")
-    public Result<PageResult<RestaurantVO>> page(
-            @RequestParam(defaultValue = "1") Integer pageNum,
-            @RequestParam(defaultValue = "10") Integer pageSize,
-            @RequestParam(required = false) String category) {
-        log.info("分页查询餐厅: pageNum={}, pageSize={}, category={}", pageNum, pageSize, category);
-        Page<RestaurantVO> result = restaurantService.page(pageNum, pageSize, category);
-        return Result.success(PageResult.of(result));
+    @GetMapping("/list")
+    public CommonResult<?> list(@RequestBody RestaurantQueryDTO query) {
+        try {
+            if (query.getCurrent() < 1) {
+                return CommonResult.error(ResultCode.BAD_REQUEST, "当前页必须为正整数");
+            }
+            if (query.getSize() < 1 || query.getSize() > 100) {
+                return CommonResult.error(ResultCode.BAD_REQUEST, "每页条数须在1~100之间");
+            }
+            return restaurantService.listRestaurants(query.getCurrent(), query.getSize(),
+                    query.getCategory(),query.getMinPrice(),query.getMaxPrice(),query.getMinRating());
+        } catch (Exception e) {
+            log.error("查询餐厅失败", e);
+            return CommonResult.error(ResultCode.INTERNAL_SERVER_ERROR, "查询餐厅失败");
+        }
     }
 
     /**
@@ -43,46 +49,34 @@ public class RestaurantController {
      * @param id 餐厅ID
      */
     @GetMapping("/{id}")
-    public Result<RestaurantVO> getRestaurantById(@PathVariable Long id) {
-        log.info("查询餐厅详情: id={}", id);
-        RestaurantVO restaurantVO = restaurantService.getRestaurantById(id);
-        return Result.success(restaurantVO);
+    public CommonResult<RestaurantVO> getRestaurantById(@PathVariable Long id) {
+        try {
+            log.info("查询餐厅详情: id={}", id);
+            RestaurantVO restaurantVO = restaurantService.getRestaurantById(id);
+            return CommonResult.success(restaurantVO);
+        } catch (Exception e) {
+            log.error("查询餐厅详情失败", e);
+            return CommonResult.error(ResultCode.INTERNAL_SERVER_ERROR, "查询餐厅详情失败");
+        }
     }
 
     /**
      * 新增餐厅
+     * TODO: 需要管理员/商家权限才能调用，待实现权限校验后开放
      */
     @PostMapping("/add")
-    public Result<RestaurantVO> addRestaurant(@RequestBody  RestaurantDTO dto){
-        log.info("新增餐厅", dto);
-        try {
-            if(dto==null){
-                return Result.error("新增餐厅不能为空");
-            }
-            restaurantService.addRestaurant(dto);
-            return Result.success();
-        } catch (Exception e) {
-            // 处理异常
-            log.error("新增餐厅失败", e);
-            return Result.error(e.getMessage());
-        }
+    public CommonResult<Void> addRestaurant(@RequestBody RestaurantDTO dto) {
+        // TODO: 调用 restaurantService.addRestaurant(dto)
+        return CommonResult.error(ResultCode.INTERNAL_SERVER_ERROR, "功能待实现");
     }
 
     /**
      * 修改餐厅
+     * TODO: 需要管理员/商家权限才能调用，待实现权限校验后开放
      */
     @PutMapping("/update")
-    public Result<RestaurantVO> updateRestaurant(@RequestBode RestaurantDTO dto){
-        try {
-            if(dto==null || dto.isBlank()){
-                return Result.error("修改餐厅不能为空");
-            }
-            restaurantService.updateRestaurant(dto);
-            return Result.success();
-        } catch (Exception e) {
-            // 处理异常
-            log.error("修改餐厅失败", e);
-            return Result.error(e.getMessage());
-        }
+    public CommonResult<Void> updateRestaurant(@RequestBody RestaurantDTO dto) {
+        // TODO: 参数校验 + 调用 restaurantService.updateRestaurant(dto)
+        return CommonResult.error(ResultCode.INTERNAL_SERVER_ERROR, "功能待实现");
     }
 }

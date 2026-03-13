@@ -1,5 +1,6 @@
 package cn.zjw.common.result;
 import java.util.List;
+import java.io.Serializable;
 import lombok.Data;
 import lombok.Builder;
 import lombok.AllArgsConstructor;
@@ -12,14 +13,9 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 @Builder
 @AllArgsConstructor
 @NoArgsConstructor
-public class PageResult<T> {
+public class PageResult<T> implements Serializable{
     private Long total;
     private List<T> records;
-
-    public static <T> PageResult<T> of(Page<T> page){
-        PageResult<T> pageResult=new PageResult();
-        pageResult.setTotal(page.getTotal());
-        pageResult.setRecords(page.getRecords());
-        return pageResult;
-    }
+    private Long pageNum;
+    private Long pageSize;
 }
