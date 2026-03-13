@@ -1,11 +1,13 @@
 package cn.zjw.controller;
 
 import cn.zjw.common.result.CommonResult;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.web.bind.annotation.*;
 
 /**
  * 订单Controller
  */
+@Slf4j
 @RestController
 @RequestMapping("/api/order")
 public class OrderController {

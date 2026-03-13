@@ -43,6 +43,8 @@ public class AuthInterceptor implements HandlerInterceptor {
         if(cacheToken==null || !token.equals(cacheToken)){
             throw new UnauthorizedException("无效的token");
         }
+
+        //设置当前用户ID，存入ThreadLocal，用于在后续业务中获取当前用户信息
         UserContext.setCurrentUserId(userId);
         return true;
     }
