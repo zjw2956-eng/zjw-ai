@@ -22,7 +22,7 @@ mybatis-plus:
       logic-not-delete-value: 0
 
 jwt:
-  secret: 2956195122
+  secret: 2956195122zzzjjjwww2956195122zzzjjjwww
   expire-hours: 720
   header: Authorization
 
