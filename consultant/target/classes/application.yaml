@@ -2,7 +2,7 @@ spring:
   data:
     redis:
       host: localhost
-      port: 6379
+      port: 6380
 
   datasource:
     driver-class-name: com.mysql.cj.jdbc.Driver
@@ -23,7 +23,7 @@ mybatis-plus:
 
 jwt:
   secret: 2956195122
-  expire-hours: 72
+  expire-hours: 720
   header: Authorization
 
 sms:
