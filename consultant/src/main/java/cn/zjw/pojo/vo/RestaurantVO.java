@@ -22,9 +22,4 @@ public class RestaurantVO {
     private String images;
     private String description;
     private Integer status;
-
-    /** 关键词搜索时回填，便于前端高亮 */
-    private String keywords;
-    /** 该餐厅中匹配关键词的菜品ID列表，仅关键词搜索时填充 */
-    private List<Long> matchedDishIds;
 }
