@@ -1,15 +1,15 @@
 package cn.zjw.controller;
 
-import cn.zjw.common.result.Result;
+import cn.zjw.common.context.UserContext;
+import cn.zjw.common.result.CommonResult;
 import cn.zjw.pojo.dto.UserLoginDTO;
 import cn.zjw.pojo.dto.UserRegisterDTO;
 import cn.zjw.pojo.vo.UserVO;
 import cn.zjw.service.UserService;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.web.bind.annotation.*;
 import jakarta.validation.Valid;
 import lombok.extern.slf4j.Slf4j;
-import cn.zjw.common.context.UserContext;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.web.bind.annotation.*;
 
 /**
  * 用户Controller
@@ -26,33 +26,30 @@ public class UserController {
      * 用户注册
      */
     @PostMapping("/register")
-    public Result<Void> register(@Valid @RequestBody UserRegisterDTO dto) {
-        // 实现注册逻辑
-        log.info("用户注册:{}",dto);
+    public CommonResult<Void> register(@Valid @RequestBody UserRegisterDTO dto) {
+        log.info("用户注册:{}", dto);
         userService.register(dto);
-        return Result.success();
+        return CommonResult.success();
     }
 
     /**
      * 用户登录
      */
     @PostMapping("/login")
-    public Result<String> login(@Valid @RequestBody UserLoginDTO dto) {
-        //实现登录逻辑
-        log.info("用户登录:{}",dto);
-        String token=userService.login(dto);
-        return Result.success(token);
+    public CommonResult<String> login(@Valid @RequestBody UserLoginDTO dto) {
+        log.info("用户登录:{}", dto);
+        String token = userService.login(dto);
+        return CommonResult.success(token);
     }
 
     /**
      * 获取用户信息
      */
     @GetMapping("/info")
-    public Result<UserVO> getUserInfo() {
-        // 从token中获取userId，查询用户信息
+    public CommonResult<UserVO> getUserInfo() {
         log.info("获取用户信息");
-        Long userId=UserContext.getCurrentUserId();
-        UserVO userVO=userService.getUserInfo(userId);
-        return Result.success(userVO);
+        Long userId = UserContext.getCurrentUserId();
+        UserVO userVO = userService.getUserInfo(userId);
+        return CommonResult.success(userVO);
     }
 }

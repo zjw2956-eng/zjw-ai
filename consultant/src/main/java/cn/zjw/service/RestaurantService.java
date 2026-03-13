@@ -5,6 +5,7 @@ import cn.zjw.pojo.dto.RestaurantDTO;
 import cn.zjw.pojo.entity.Restaurant;
 import cn.zjw.pojo.vo.RestaurantVO;
 import com.baomidou.mybatisplus.extension.service.IService;
+import java.math.BigDecimal;
 
 /**
  * 餐厅Service

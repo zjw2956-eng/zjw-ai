@@ -3,6 +3,7 @@ package cn.zjw.controller;
 import cn.zjw.common.result.CommonResult;
 import cn.zjw.common.result.ResultCode;
 import cn.zjw.pojo.dto.RestaurantDTO;
+import cn.zjw.pojo.dto.RestaurantQueryDTO;
 import cn.zjw.pojo.vo.RestaurantVO;
 import cn.zjw.service.RestaurantService;
 import lombok.extern.slf4j.Slf4j;
@@ -22,12 +23,10 @@ public class RestaurantController {
 
     /**
      * 分页查询餐厅，按评分降序
-     *
-     * @param current 当前页码，默认1
-     * @param size    每页条数，默认10
+     * 支持按菜系、价格区间、最低评分筛选
      */
     @GetMapping("/list")
-    public CommonResult<?> list(@RequestBody RestaurantQueryDTO query) {
+    public CommonResult<?> list(RestaurantQueryDTO query) {
         try {
             if (query.getCurrent() < 1) {
                 return CommonResult.error(ResultCode.BAD_REQUEST, "当前页必须为正整数");
@@ -35,8 +34,10 @@ public class RestaurantController {
             if (query.getSize() < 1 || query.getSize() > 100) {
                 return CommonResult.error(ResultCode.BAD_REQUEST, "每页条数须在1~100之间");
             }
-            return restaurantService.listRestaurants(query.getCurrent(), query.getSize(),
-                    query.getCategory(),query.getMinPrice(),query.getMaxPrice(),query.getMinRating());
+            return restaurantService.listRestaurants(
+                    query.getCurrent(), query.getSize(),
+                    query.getCategory(), query.getMinPrice(),
+                    query.getMaxPrice(), query.getMinRating());
         } catch (Exception e) {
             log.error("查询餐厅失败", e);
             return CommonResult.error(ResultCode.INTERNAL_SERVER_ERROR, "查询餐厅失败");
@@ -45,8 +46,6 @@ public class RestaurantController {
 
     /**
      * 根据ID查询餐厅详情
-     *
-     * @param id 餐厅ID
      */
     @GetMapping("/{id}")
     public CommonResult<RestaurantVO> getRestaurantById(@PathVariable Long id) {
