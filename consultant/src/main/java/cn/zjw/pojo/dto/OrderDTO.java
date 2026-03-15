@@ -9,7 +9,6 @@ import jakarta.validation.constraints.NotBlank;
  */
 @Data
 public class OrderDTO {
-    @NotBlank(message = "餐厅ID不能为空")
     private Long restaurantId;
     private LocalDateTime reservationTime;
     private Integer peopleCount;

@@ -6,3 +6,16 @@
 # Datasource local storage ignored files
 /dataSources/
 /dataSources.local.xml
+# 忽略 .idea 目录
+.idea/
+# 忽略 .vscode 目录
+.vscode/
+# 忽略 .target 目录
+.target/
+# 忽略 .log 目录
+.log/
+# 忽略 .class 目录
+.class/
+# 忽略 .db 目录
+.db/
+

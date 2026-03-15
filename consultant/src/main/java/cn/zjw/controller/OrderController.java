@@ -35,7 +35,7 @@ public class OrderController {
      * 创建订单
      */
     @PostMapping
-    public CommonResult<Void> createOrder(@Valid @RequestBody OrderDTO dto) {
+    public CommonResult<Void> createOrder(@RequestBody OrderDTO dto) {
         try {
             Restaurant restaurant = restaurantMapper.selectById(dto.getRestaurantId());
             if (restaurant == null || restaurant.getIsDeleted() == 1 ) {

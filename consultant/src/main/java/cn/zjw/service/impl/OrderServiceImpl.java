@@ -38,6 +38,7 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, OrderInfo> implem
         OrderInfo orderInfo=new OrderInfo();
         //用户上下文取用户ID
         Long userId=UserContext.getCurrentUserId();
+        orderInfo.setUserId(userId);  // ✅ 设置用户ID
         //设置订单号
         String orderNo=Constants.ORDER_ID_PREFIX+System.currentTimeMillis()+userId.toString();
         orderInfo.setOrderNo(orderNo);
