@@ -7,11 +7,14 @@ import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import cn.zjw.common.context.UserContext;
 import cn.hutool.core.util.PhoneUtil;
+import cn.hutool.json.JSONUtil;
 import org.springframework.stereotype.Service;
 import cn.zjw.common.constant.Constants;
 import cn.zjw.pojo.dto.OrderDTO;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import java.time.LocalDateTime;
+import java.util.concurrent.TimeUnit;
 import cn.hutool.core.bean.BeanUtil;
 import cn.zjw.common.enums.OrderStatus;
 import cn.zjw.pojo.entity.Restaurant;
@@ -22,16 +25,20 @@ import java.util.stream.Collectors;
 import java.util.Set;
 import java.util.List;
 import java.util.Map;
+import lombok.extern.slf4j.Slf4j;
 
 /**
  * 订单Service实现
  */
+@Slf4j
 @Service
 public class OrderServiceImpl extends ServiceImpl<OrderMapper, OrderInfo> implements OrderService {
     @Autowired
     private OrderMapper orderMapper;
     @Autowired
     private RestaurantMapper restaurantMapper;
+    @Autowired
+    private StringRedisTemplate redisTemplate;
     
     @Override
     public void createOrder(OrderDTO dto){
@@ -93,5 +100,41 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, OrderInfo> implem
         resultPage.setRecords(voList);
         
         return resultPage;
+    }
+
+    @Override
+    public OrderVO getOrderDetail(String orderNo){
+        //查询缓存
+        String json=redisTemplate.opsForValue().get(Constants.REDIS_ORDER_DETAIL+orderNo);
+        if(json!=null){
+            if (json.isEmpty()) {//缓存中为空字符串，返回null
+                return null;
+            }
+            return JSONUtil.toBean(json,OrderVO.class);
+        }
+
+        //查询数据库
+        LambdaQueryWrapper<OrderInfo> wrapper=new LambdaQueryWrapper<>();
+        wrapper.eq(OrderInfo::getOrderNo,orderNo);
+        OrderInfo orderInfo=orderMapper.selectOne(wrapper);
+        if (orderInfo==null) {
+            //缓存中没有，返回null
+            log.warn("订单不存在，orderNo={}",orderNo);
+            //设置缓存过期时间为2分钟,防止缓存穿透
+            redisTemplate.opsForValue().set(Constants.REDIS_ORDER_DETAIL+orderNo,"",Constants.REDIS_EMPTY_KEY_EXPIRE_TIME, TimeUnit.SECONDS);
+            return null;
+        }
+        OrderVO orderVO=new OrderVO();
+        BeanUtil.copyProperties(orderInfo, orderVO);
+        orderVO.setStatusDesc(OrderStatus.getDescByCode(orderInfo.getStatus()));
+        //餐厅信息
+        Restaurant restaurant=restaurantMapper.selectById(orderInfo.getRestaurantId());
+        if(restaurant!=null){
+            orderVO.setRestaurantId(restaurant.getId());
+            orderVO.setRestaurantName(restaurant.getName());
+        }
+        //缓存订单详情,过期时间为72小时
+        redisTemplate.opsForValue().set(Constants.REDIS_ORDER_DETAIL+orderNo,JSONUtil.toJsonStr(orderVO),Constants.REDIS_EXPIRE_TIME, TimeUnit.SECONDS);
+        return orderVO;
     }
 }

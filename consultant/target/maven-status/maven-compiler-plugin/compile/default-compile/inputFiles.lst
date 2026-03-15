@@ -9,6 +9,7 @@ D:\GitHubRepository\aiwork\consultant\src\main\java\cn\zjw\common\result\PageRes
 D:\GitHubRepository\aiwork\consultant\src\main\java\cn\zjw\common\result\ResultCode.java
 D:\GitHubRepository\aiwork\consultant\src\main\java\cn\zjw\common\utils\JwtUtil.java
 D:\GitHubRepository\aiwork\consultant\src\main\java\cn\zjw\config\MybatisPlusConfig.java
+D:\GitHubRepository\aiwork\consultant\src\main\java\cn\zjw\config\RedisConfig.java
 D:\GitHubRepository\aiwork\consultant\src\main\java\cn\zjw\config\WebMvcConfig.java
 D:\GitHubRepository\aiwork\consultant\src\main\java\cn\zjw\ConsultantApplication.java
 D:\GitHubRepository\aiwork\consultant\src\main\java\cn\zjw\controller\DishController.java

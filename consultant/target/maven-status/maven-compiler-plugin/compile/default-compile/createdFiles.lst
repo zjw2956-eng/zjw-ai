@@ -3,6 +3,7 @@ cn\zjw\interceptor\AuthInterceptor.class
 cn\zjw\common\exception\UnauthorizedException.class
 cn\zjw\pojo\dto\OrderQueryDTO.class
 cn\zjw\config\MybatisPlusConfig.class
+cn\zjw\config\RedisConfig.class
 cn\zjw\pojo\entity\OrderInfo.class
 cn\zjw\handler\MyMetaObjectHandler.class
 cn\zjw\pojo\vo\UserVO.class

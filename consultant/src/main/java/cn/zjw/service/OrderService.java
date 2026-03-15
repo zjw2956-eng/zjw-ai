@@ -20,5 +20,10 @@ public interface OrderService extends IService<OrderInfo> {
      */
     Page<OrderVO> listOrders(Integer current, Integer pageSize,Integer status);
 
+    /**
+     * 查询订单详情
+     */
+    OrderVO getOrderDetail(String orderNo);
+
     
 }

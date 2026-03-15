@@ -85,12 +85,20 @@ public class OrderController {
     }
 
     /**
-     * 查询我的订单
+     * 查询订单详情
      */
-    @GetMapping("/my")
-    public CommonResult<Void> getMyOrders() {
-        // TODO: 实现查询订单逻辑
-        return null;
+    @GetMapping("/{orderNo}")
+    public CommonResult<OrderVO> getOrderDetail(@PathVariable String orderNo) {
+        try {
+            OrderVO orderVO=orderService.getOrderDetail(orderNo);
+            if (orderVO==null) {
+                throw new BusinessException(ResultCode.NOT_FOUND.getCode(),"订单不存在");
+            }
+            return CommonResult.success(orderVO);
+        } catch (Exception e) {
+            log.error("查询订单详情失败", e);
+            return CommonResult.error(ResultCode.INTERNAL_SERVER_ERROR,"查询订单详情失败");
+        }
     }
 
     /**
