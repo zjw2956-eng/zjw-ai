@@ -38,57 +38,52 @@ public class RestaurantServiceImpl extends ServiceImpl<RestaurantMapper, Restaur
     private StringRedisTemplate stringRedisTemplate;
 
     @Override
-    public CommonResult<?> listRestaurants(Integer current, Integer size,
+    public Page<RestaurantVO> listRestaurants(Integer current, Integer size,
         String category, BigDecimal minPrice,BigDecimal maxPrice, BigDecimal minRating) {
-        try {
-            LambdaQueryWrapper<Restaurant> wrapper = new LambdaQueryWrapper<Restaurant>()
-                /**
-                 * 分页条件
-                 * 状态正常：营业中
-                 * 未删除：正常营业
-                 * 分类匹配：可选菜系
-                 * 价格范围：可选价格区间
-                 * 评分范围：可选评分区间
-                 * 排序：按评分降序
-                 */
-                    .eq(Restaurant::getStatus, Constants.RESTAURANT_STATUS_NORMAL)
-                    .eq(Restaurant::getIsDeleted, 0)
-                    .eq(StringUtils.hasText(category),Restaurant::getCategory,category)
-                    //价格范围 ge是大于等于，le是小于等于
-                    .ge(minPrice!=null,Restaurant::getAvgPrice,minPrice)
-                    .le(maxPrice!=null,Restaurant::getAvgPrice,maxPrice)
-                    .ge(minRating!=null,Restaurant::getRating,minRating)
-                    .orderByDesc(Restaurant::getRating);
-            //关键步骤，执行分页查询，MyBatis-Plus提供的page方法
-            //返回的 restaurantPage 里装好了：当前页数据列表 + 总记录数 + 总页数
-            Page<Restaurant> restaurantPage = this.page(new Page<>(current, size), wrapper);
-
+        LambdaQueryWrapper<Restaurant> wrapper = new LambdaQueryWrapper<Restaurant>()
             /**
-             * getRecords() → 拿出当前页的餐厅列表（List<Restaurant>）
-             * BeanUtil.copyProperties → 把每个 Restaurant（数据库实体）复制成 RestaurantVO（返回给前端的对象）
-             * collect(Collectors.toList()) → 把所有复制好的 RestaurantVO 收集成一个 List
+             * 分页条件
+             * 状态正常：营业中
+             * 未删除：正常营业
+             * 分类匹配：可选菜系
+             * 价格范围：可选价格区间
+             * 评分范围：可选评分区间
+             * 排序：按评分降序
              */
-            List<RestaurantVO> voList = restaurantPage.getRecords().stream()
-                    .map(r -> BeanUtil.copyProperties(r, RestaurantVO.class))
-                    .collect(Collectors.toList());
+                .eq(Restaurant::getStatus, Constants.RESTAURANT_STATUS_NORMAL)
+                .eq(Restaurant::getIsDeleted, 0)
+                .eq(StringUtils.hasText(category),Restaurant::getCategory,category)
+                //价格范围 ge是大于等于，le是小于等于
+                .ge(minPrice!=null,Restaurant::getAvgPrice,minPrice)
+                .le(maxPrice!=null,Restaurant::getAvgPrice,maxPrice)
+                .ge(minRating!=null,Restaurant::getRating,minRating)
+                .orderByDesc(Restaurant::getRating);
+        //关键步骤，执行分页查询，MyBatis-Plus提供的page方法
+        //返回的 restaurantPage 里装好了：当前页数据列表 + 总记录数 + 总页数
+        Page<Restaurant> restaurantPage = this.page(new Page<>(current, size), wrapper);
 
-            /**
-             * 为什么不直接返回 restaurantPage？
-             * 因为它是 Page<Restaurant> 类型，里面装的是实体，不是 VO。
-             * 所以需要新建一个 Page<RestaurantVO>，然后把总数/页码这些信息从旧的搬过来。
-             */
-            Page<RestaurantVO> resultPage = new Page<>(
-                    restaurantPage.getCurrent(),
-                    restaurantPage.getSize(),
-                    restaurantPage.getTotal()
-            );
-            resultPage.setRecords(voList);
+        /**
+         * getRecords() → 拿出当前页的餐厅列表（List<Restaurant>）
+         * BeanUtil.copyProperties → 把每个 Restaurant（数据库实体）复制成 RestaurantVO（返回给前端的对象）
+         * collect(Collectors.toList()) → 把所有复制好的 RestaurantVO 收集成一个 List
+         */
+        List<RestaurantVO> voList = restaurantPage.getRecords().stream()
+                .map(r -> BeanUtil.copyProperties(r, RestaurantVO.class))
+                .collect(Collectors.toList());
 
-            return CommonResult.success(resultPage);
-        } catch (Exception e) {
-            log.error("查询餐厅失败", e);
-            return CommonResult.error(ResultCode.INTERNAL_SERVER_ERROR, "查询餐厅失败，请稍后重试");
-        }
+        /**
+         * 为什么不直接返回 restaurantPage？
+         * 因为它是 Page<Restaurant> 类型，里面装的是实体，不是 VO。
+         * 所以需要新建一个 Page<RestaurantVO>，然后把总数/页码这些信息从旧的搬过来。
+         */
+        Page<RestaurantVO> resultPage = new Page<>(
+                restaurantPage.getCurrent(),
+                restaurantPage.getSize(),
+                restaurantPage.getTotal()
+        );
+        resultPage.setRecords(voList);
+
+        return resultPage;
     }
 
     @Override

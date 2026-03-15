@@ -29,15 +29,16 @@ public class RestaurantController {
     public CommonResult<?> list(RestaurantQueryDTO query) {
         try {
             if (query.getCurrent() < 1) {
-                return CommonResult.error(ResultCode.BAD_REQUEST, "当前页必须为正整数");
+            return CommonResult.error(ResultCode.BAD_REQUEST, "当前页必须为正整数");
             }
             if (query.getSize() < 1 || query.getSize() > 100) {
                 return CommonResult.error(ResultCode.BAD_REQUEST, "每页条数须在1~100之间");
             }
-            return restaurantService.listRestaurants(
+            Page<RestaurantVO> page = restaurantService.listRestaurants(
                     query.getCurrent(), query.getSize(),
                     query.getCategory(), query.getMinPrice(),
                     query.getMaxPrice(), query.getMinRating());
+            return CommonResult.success(page);
         } catch (Exception e) {
             log.error("查询餐厅失败", e);
             return CommonResult.error(ResultCode.INTERNAL_SERVER_ERROR, "查询餐厅失败");
