@@ -20,7 +20,7 @@ public class OrderInfo {
     private String contactName;//联系人
     private String contactPhone;//联系电话
     private String specialRequest;//特殊要求
-    private OrderStatus status;//状态
+    private Integer status;//状态：0-待确认，1-已确认，2-已完成，3-已取消
 
     @TableLogic
     private Integer isDeleted;//逻辑删除

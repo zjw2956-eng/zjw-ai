@@ -4,13 +4,13 @@ import cn.zjw.service.OrderService;
 import cn.zjw.mapper.OrderMapper;
 import cn.zjw.pojo.entity.OrderInfo;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import cn.zjw.common.context.UserContext;
-import cn.zjw.common.utils.PhoneUtil;
+import cn.hutool.core.util.PhoneUtil;
 import org.springframework.stereotype.Service;
 import cn.zjw.common.constant.Constants;
 import cn.zjw.pojo.dto.OrderDTO;
 import org.springframework.beans.factory.annotation.Autowired;
-import cn.zjw.mapper.OrderMapper;
 import java.time.LocalDateTime;
 import cn.hutool.core.bean.BeanUtil;
 import cn.zjw.common.enums.OrderStatus;
@@ -37,7 +37,7 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, OrderInfo> implem
     public void createOrder(OrderDTO dto){
         OrderInfo orderInfo=new OrderInfo();
         //用户上下文取用户ID
-        Long userId=UserContext.getUserId();
+        Long userId=UserContext.getCurrentUserId();
         //设置订单号
         String orderNo=Constants.ORDER_ID_PREFIX+System.currentTimeMillis()+userId.toString();
         orderInfo.setOrderNo(orderNo);
@@ -65,7 +65,7 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, OrderInfo> implem
         //批量查询餐厅信息
         List<Restaurant> restaurants=restaurantMapper.selectBatchIds(restaurantIds);
         // 构建 restaurantId → Restaurant 的 Map
-        Map<Long, Restaurant> restaurantMap = restaurantIds.stream()
+        Map<Long, Restaurant> restaurantMap = restaurants.stream()
                 .collect(Collectors.toMap(Restaurant::getId, r -> r));
         List<OrderVO> voList= orderList.stream()
                             .map(order->{

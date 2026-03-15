@@ -6,7 +6,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.Date;
 import cn.zjw.common.exception.UnauthorizedException;
 import org.springframework.beans.factory.annotation.Value;
-
+import cn.zjw.common.result.ResultCode;
 import lombok.extern.slf4j.Slf4j;
 
 import org.springframework.stereotype.Component;
@@ -50,7 +50,7 @@ public class JwtUtil {
     public Long parseUserId(String token) {
         // 实现JWT解析逻辑
         if (token == null || token.isBlank()) {
-            throw new UnauthorizedException("Token is required");
+            throw new UnauthorizedException(401, "Token is required");
         }
         try {
             Claims claims=Jwts.parser()
@@ -61,7 +61,7 @@ public class JwtUtil {
             return Long.parseLong(claims.getSubject());
         } catch (Exception e) {
             log.error("Token解析失败", e);
-            throw new UnauthorizedException("Invalid token");
+            throw new UnauthorizedException(401, "Invalid token");
         }
     }
 }

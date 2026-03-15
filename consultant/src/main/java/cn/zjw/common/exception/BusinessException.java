@@ -1,5 +1,7 @@
 package cn.zjw.common.exception;
 
+import cn.zjw.common.result.ResultCode;
+
 import lombok.Getter;
 
 /**
@@ -11,7 +13,7 @@ public class BusinessException extends RuntimeException {
 
     public BusinessException(String message) {
         super(message);
-        this.code = 500;
+        this.code = ResultCode.INTERNAL_SERVER_ERROR.getCode();
     }
 
     public BusinessException(Integer code, String message) {

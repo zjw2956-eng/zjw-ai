@@ -3,6 +3,7 @@ package cn.zjw.interceptor;
 import cn.zjw.common.context.UserContext;
 import cn.zjw.common.exception.UnauthorizedException;
 import cn.zjw.common.utils.JwtUtil;
+import cn.zjw.common.result.ResultCode;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
@@ -32,16 +33,16 @@ public class AuthInterceptor implements HandlerInterceptor {
     public boolean preHandle(HttpServletRequest request, HttpServletResponse response, Object handler) {
         String auth = request.getHeader("Authorization");
         if(auth==null || auth.isBlank()) {
-            throw new UnauthorizedException("Token is required");
+            throw new UnauthorizedException(401, "Token is required");
         }
         if (!auth.startsWith("Bearer ")) {
-            throw new UnauthorizedException("Invalid token format");
+            throw new UnauthorizedException(401, "Invalid token format");
         }
         String token = auth.substring("Bearer ".length());
         Long userId=jwtUtil.parseUserId(token);
         String cacheToken=redisTemplate.opsForValue().get(Constants.REDIS_USER_TOKEN + userId);
         if(cacheToken==null || !token.equals(cacheToken)){
-            throw new UnauthorizedException("无效的token");
+            throw new UnauthorizedException(401, "无效的token");
         }
 
         //设置当前用户ID，存入ThreadLocal，用于在后续业务中获取当前用户信息

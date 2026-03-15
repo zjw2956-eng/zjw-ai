@@ -1,12 +1,15 @@
 cn\zjw\common\constant\Constants.class
 cn\zjw\interceptor\AuthInterceptor.class
 cn\zjw\common\exception\UnauthorizedException.class
+cn\zjw\pojo\dto\OrderQueryDTO.class
 cn\zjw\config\MybatisPlusConfig.class
 cn\zjw\pojo\entity\OrderInfo.class
 cn\zjw\handler\MyMetaObjectHandler.class
 cn\zjw\pojo\vo\UserVO.class
 cn\zjw\common\enums\OrderStatus.class
+cn\zjw\service\OrderService.class
 cn\zjw\service\RestaurantService.class
+cn\zjw\pojo\vo\OrderVO.class
 cn\zjw\common\exception\BusinessException.class
 cn\zjw\common\result\CommonResult.class
 cn\zjw\pojo\dto\UserLoginDTO.class
@@ -20,7 +23,9 @@ cn\zjw\pojo\vo\RestaurantVO.class
 cn\zjw\common\result\ResultCode.class
 cn\zjw\controller\UserController.class
 cn\zjw\service\impl\DishServiceImpl.class
+cn\zjw\pojo\dto\OrderDTO.class
 cn\zjw\common\context\UserContext.class
+cn\zjw\service\impl\OrderServiceImpl.class
 cn\zjw\pojo\dto\UserRegisterDTO.class
 cn\zjw\common\result\CommonResult$CommonResultBuilder.class
 cn\zjw\pojo\vo\DishVO.class

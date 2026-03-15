@@ -2,7 +2,7 @@ package cn.zjw.pojo.dto;
 import java.time.LocalDateTime;
 import lombok.Data;
 
-import javax.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotBlank;
 
 /**
  * 订单DTO
