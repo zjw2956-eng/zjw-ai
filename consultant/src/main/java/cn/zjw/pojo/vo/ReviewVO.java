@@ -17,6 +17,7 @@ public class ReviewVO {
 
     private Long userId;
     private String userNickname;
+    private String userAvatar;
 
     private LocalDateTime createTime;
 }

@@ -6,6 +6,7 @@ import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
+import java.util.stream.Collectors;
 
 import org.springframework.beans.factory.annotation.Autowired;
 
@@ -24,7 +25,12 @@ import cn.zjw.common.enums.ReviewStatus;
 import cn.zjw.pojo.entity.Restaurant;
 import cn.zjw.mapper.RestaurantMapper;
 import org.springframework.transaction.annotation.Transactional;
-
+import cn.zjw.pojo.entity.User;
+import cn.zjw.mapper.UserMapper;
+import java.util.List;
+import java.util.Set;
+import java.util.Map;
+import cn.zjw.pojo.vo.ReviewVO;
 
 @Service
 public class ReviewServiceImpl extends ServiceImpl<ReviewMapper, Review> implements ReviewService {
@@ -38,6 +44,9 @@ public class ReviewServiceImpl extends ServiceImpl<ReviewMapper, Review> impleme
 
     @Autowired
     private RestaurantMapper restaurantMapper;
+
+    @Autowired
+    private UserMapper userMapper;
 
     @Override
     public void createReview(ReviewDTO dto){
@@ -72,6 +81,25 @@ public class ReviewServiceImpl extends ServiceImpl<ReviewMapper, Review> impleme
         BeanUtil.copyProperties(dto,review);
         review.setUserId(userId);
         review.setRestaurantId(restaurantId);
+
+        // TODO: [敏感词过滤] 混合方案：DFA本地快速过滤 + AI语义审核（异步）
+        //   第一层：DFA算法快速检测（本地内存，<10ms）
+        //     1. 维护敏感词库（Redis Set存储，key: sensitive:words）
+        //     2. 使用DFA算法匹配 dto.getContent()
+        //     3. 命中明显敏感词 → 直接抛异常拒绝发表
+        //     工具：Hutool的SensitiveUtil 或 自己实现DFA（面试加分）
+        //
+        //   第二层：AI语义审核（异步，不阻塞用户）
+        //     1. 未命中DFA → 设置状态为 PENDING（待审核）
+        //     2. 发送MQ消息到 review.audit.queue
+        //     3. 消费者调用通义千问API审核：
+        //        Prompt: "判断以下评价是否包含辱骂/政治敏感/色情/广告，返回JSON: {safe:true/false, reason:''}"
+        //     4. AI返回结果：
+        //        - safe=true → 自动调用 approveReview(reviewId)
+        //        - safe=false → 保持PENDING状态，等待人工复核
+        //
+        //   优势：90%正常评价快速放行，10%可疑内容AI精准判断
+
         //设置评价状态为待审核
         review.setStatus(ReviewStatus.PENDING.getCode());
 
@@ -154,5 +182,52 @@ public class ReviewServiceImpl extends ServiceImpl<ReviewMapper, Review> impleme
         }
         restaurant.setRating(avgRating);
         restaurantMapper.updateById(restaurant);
+    }
+
+
+    @Override
+    public Page<ReviewVO> listByRestaurantId(ReviewQueryDTO dto){
+        LambdaQueryWrapper<Review> wrapper=new LambdaQueryWrapper<>();
+        wrapper.eq(Review::getRestaurantId, dto.getRestaurantId())
+            .eq(Review::getIsDeleted, 0)
+            .eq(Review::getStatus, ReviewStatus.APPROVED.getCode())
+            .eq(dto.getRating()!=null, Review::getRating,dto.getRating())
+            .orderByDesc(Review::getCreateTime);
+        Page<Review> firstPage= this.page(new Page<>(dto.getCurrent(),dto.getPageSize()),wrapper);
+
+        // 2. 转换为VO，要关联查询用户表获取用户昵称和头像
+        //获取评价列表
+        List<Review> reviewList=firstPage.getRecords();
+
+        //提取所有userId
+        Set<Long> userIds= reviewList.stream().map(Review::getUserId).collect(Collectors.toSet());
+
+        //批量查询用户(只查询一次数据库)
+        List<User> userList=userMapper.selectBatchIds(userIds);
+
+        //构建Map映射
+        Map<Long,User> userMap=userList.stream().collect(Collectors.toMap(User::getId,u->u));
+
+        //组装VO
+        List<ReviewVO> voList=reviewList.stream()
+            .map(review->{
+                ReviewVO vo=new ReviewVO();
+                BeanUtil.copyProperties(review,vo);
+                //从Map中获取用户信息
+                User user=userMap.get(review.getUserId());
+                if(user!=null){
+                    vo.setUserNickname(user.getNickname());
+                    vo.setUserAvatar(user.getAvatar());
+                }
+            }).collect(Collectors.toList());
+
+        //构造结果分页
+        Page<ReviewVO> resultPage = new Page<>(
+            firstPage.getCurrent(),
+            firstPage.getPageSize(),
+            firstPage.getTotal()
+        );
+        resultPage.setRecords(voList);
+        return resultPage;      
     }
 }

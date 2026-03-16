@@ -13,6 +13,10 @@ import cn.zjw.common.result.CommonResult;
 import cn.zjw.common.result.ResultCode;
 import cn.zjw.pojo.dto.ReviewDTO;
 import cn.zjw.service.ReviewService;
+import cn.zjw.pojo.dto.ReviewQueryDTO;
+import cn.zjw.pojo.vo.ReviewVO;
+import com.mybatisplus.extension.plugins.pagination.Page;
+
 
 /**
  * 评价Controller
@@ -57,4 +61,23 @@ public class ReviewController {
         reviewService.rejectReview(id);
         return CommonResult.success(ResultCode.SUCCESS, "评价审核拒绝");
     }
+
+    /**
+     * 查询餐厅评价列表
+     */
+    @GetMapping("/restaurant")
+    public CommonResult<Page<ReviewVO>> listByRestaurantId(@Valid ReviewQueryDTO dto){
+        if(dto.getCurrent() < 1){
+            return CommonResult.error(ResultCode.BAD_REQUEST,"当前页码必须为正整数");
+        }
+        if(dto.getPageSize() < 1 || dto.getPageSize() > 100){
+            return CommonResult.error(ResultCode.BAD_REQUEST,"查询页数在1-100之间");
+        }
+        Page<ReviewVO> result=reviewService.listByRestaurantId(dto);
+        return CommonResult.success(ResultCode.SUCCESS, result);
+    }
+
+
+
+
 }
