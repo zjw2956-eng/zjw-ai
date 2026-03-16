@@ -77,6 +77,10 @@ public class ReviewServiceImpl extends ServiceImpl<ReviewMapper, Review> impleme
 
         //保存评价
         reviewMapper.insert(review);
+        // TODO: [RabbitMQ] 通知管理员/商家有新评价待审核
+        //   交换机: review.exchange，routing key: review.pending
+        //   消息体: { reviewId: review.getId(), restaurantId }
+        //   消费者: 向管理员/商家推送"新评价待审核"通知
     }
 
     @Override
@@ -96,8 +100,14 @@ public class ReviewServiceImpl extends ServiceImpl<ReviewMapper, Review> impleme
 
         // 同步更新评分（后续改为 MQ 异步）
         updateRestaurantRating(review.getRestaurantId());
-        // TODO: [RabbitMQ] 后续替换为：发送消息到 review.exchange，routing key: review.approved
-        //   消息体: { restaurantId }，消费者异步执行 updateRestaurantRating()
+        // TODO: [RabbitMQ] 评分更新：后续替换为发送 MQ 消息，消费者异步执行 updateRestaurantRating()
+        //   交换机: review.exchange，routing key: review.approved
+        //   消息体: { restaurantId }
+        //   注意: 迁移时需将 updateRestaurantRating() 提取到独立的 RatingUpdateService Bean
+        // TODO: [RabbitMQ] 通知用户评价已通过审核
+        //   交换机: review.exchange，routing key: review.notify.user
+        //   消息体: { userId: review.getUserId(), reviewId: id }
+        //   消费者: 向用户推送"您的评价已通过审核"通知
     }
 
     @Override
@@ -114,6 +124,10 @@ public class ReviewServiceImpl extends ServiceImpl<ReviewMapper, Review> impleme
         //更新评价状态
         review.setStatus(ReviewStatus.REJECTED.getCode());
         reviewMapper.updateById(review);
+        // TODO: [RabbitMQ] 通知用户评价未通过审核
+        //   交换机: review.exchange，routing key: review.notify.user
+        //   消息体: { userId: review.getUserId(), reviewId: id }
+        //   消费者: 向用户推送"您的评价未通过审核"通知
     }
 
 
