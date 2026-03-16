@@ -26,6 +26,9 @@ import java.util.Set;
 import java.util.List;
 import java.util.Map;
 import lombok.extern.slf4j.Slf4j;
+import cn.zjw.common.exception.BusinessException;
+import cn.zjw.common.result.ResultCode;
+import org.springframework.transaction.annotation.Transactional;
 
 /**
  * 订单Service实现
@@ -40,6 +43,7 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, OrderInfo> implem
     @Autowired
     private StringRedisTemplate redisTemplate;
     
+    // TODO: [RabbitMQ] 集成后需加 @Transactional，配合发布者确认机制保证消息可靠性
     @Override
     public void createOrder(OrderDTO dto){
         OrderInfo orderInfo=new OrderInfo();
@@ -53,12 +57,26 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, OrderInfo> implem
         orderInfo.setStatus(OrderStatus.PENDING.getCode());
 
         BeanUtil.copyProperties(dto, orderInfo);
-        orderMapper.insert(orderInfo);
+        orderMapper.insert(orderInfo); // ← 写库成功
+        // TODO: [RabbitMQ] 发送订单创建通知消息
+        //   交换机: order.exchange
+        //   routing key: order.create
+        //   消息体: { orderNo, userId, restaurantId, reservationTime }
+        //   消费者: 发送短信/推送通知用户和餐厅
+        // TODO: [RabbitMQ] 发送订单超时延迟消息（30分钟后触发自动取消）
+        //   交换机: order.delay.exchange（需配置死信队列 DLX 实现延迟）
+        //   routing key: order.timeout
+        //   消息体: { orderNo }
+        //   消费者: 检查订单状态，若仍为 PENDING 则更新为 CANCELLED
     }
 
     @Override
     public Page<OrderVO> listOrders(Integer current, Integer pageSize,Integer status){
         LambdaQueryWrapper<OrderInfo> wrapper=new LambdaQueryWrapper<>();
+        //只查询当前用户自己的订单
+        Long userId=UserContext.getCurrentUserId();
+        wrapper.eq(OrderInfo::getUserId,userId);
+        
         if(status != null){
             wrapper.eq(OrderInfo::getStatus,status);
         }
@@ -136,5 +154,37 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, OrderInfo> implem
         //缓存订单详情,过期时间为72小时
         redisTemplate.opsForValue().set(Constants.REDIS_ORDER_DETAIL+orderNo,JSONUtil.toJsonStr(orderVO),Constants.REDIS_EXPIRE_TIME, TimeUnit.SECONDS);
         return orderVO;
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void cancelOrder(String orderNo){
+        LambdaQueryWrapper<OrderInfo> wrapper=new LambdaQueryWrapper<>();
+        wrapper.eq(OrderInfo::getIsDeleted,0).eq(OrderInfo::getOrderNo,orderNo);
+        //根据订单号查询订单
+        OrderInfo orderInfo=orderMapper.selectOne(wrapper);
+        //如果订单不存在，返回错误
+        if(orderInfo==null){
+            throw new BusinessException(ResultCode.NOT_FOUND.getCode(),"订单不存在");
+        }
+        //校验是否为当前用户
+        if (!UserContext.getCurrentUserId().equals(orderInfo.getUserId())) {
+            throw new BusinessException(ResultCode.FORBIDDEN.getCode(),"订单不属于当前用户，无权取消");
+        }
+        //校验订单状态
+        if (!orderInfo.getStatus().equals(OrderStatus.PENDING.getCode())) {
+            throw new BusinessException(ResultCode.BAD_REQUEST.getCode(),"当前订单状态不支持取消");
+        }
+        //更新订单状态
+        orderInfo.setStatus(OrderStatus.CANCELLED.getCode());
+
+        //更新订单
+        orderMapper.updateById(orderInfo);
+
+        //删除缓存
+        redisTemplate.delete(Constants.REDIS_ORDER_DETAIL+orderNo);
+        // TODO: [RabbitMQ] 取消成功后发送通知消息，告知用户订单已取消
+        //   交换机: order.exchange，routing key: order.cancel
+        //   消息体: { orderNo, userId }
     }
 }

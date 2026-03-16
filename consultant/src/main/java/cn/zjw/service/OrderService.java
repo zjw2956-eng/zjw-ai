@@ -12,6 +12,8 @@ public interface OrderService extends IService<OrderInfo> {
 
     /**
      * 创建订单
+     * @param dto 订单DTO
+     * TODO: [RabbitMQ] 实现后需在此方法内发送异步通知消息和延迟取消消息
      */
     void createOrder(OrderDTO dto); 
 
@@ -24,6 +26,13 @@ public interface OrderService extends IService<OrderInfo> {
      * 查询订单详情
      */
     OrderVO getOrderDetail(String orderNo);
+
+    /**
+     * 取消订单
+     * @param orderNo 订单号
+     * TODO: [RabbitMQ] 取消成功后发送通知消息，告知用户订单已取消
+     */
+    void cancelOrder(String orderNo);
 
     
 }

@@ -36,29 +36,24 @@ public class OrderController {
      */
     @PostMapping
     public CommonResult<Void> createOrder(@RequestBody OrderDTO dto) {
-        try {
-            Restaurant restaurant = restaurantMapper.selectById(dto.getRestaurantId());
-            if (restaurant == null || restaurant.getIsDeleted() == 1 ) {
-                throw new BusinessException(ResultCode.NOT_FOUND.getCode(),"餐厅不存在");
-            }
-            // 检查餐厅是否正常
-            if (restaurant.getStatus() != Constants.RESTAURANT_STATUS_NORMAL) {
-                throw new BusinessException(ResultCode.NOT_FOUND.getCode(),"餐厅休息中");
-            }
-           if(dto.getPeopleCount() <= 0) {
-                throw new BusinessException(ResultCode.BAD_REQUEST.getCode(),"用餐人数必须大于0");
-            }
-            if(dto.getReservationTime().isBefore(LocalDateTime.now())){
-                throw new BusinessException(ResultCode.BAD_REQUEST.getCode(),"预约时间不能早于当前时间");
-            }
-            if(!PhoneUtil.isMobile(dto.getContactPhone())){
-                throw new BusinessException(ResultCode.BAD_REQUEST.getCode(),"联系电话格式错误");
-            }
-            orderService.createOrder(dto);
-        } catch (Exception e) {
-            log.error("创建订单失败", e);
-            return CommonResult.error(ResultCode.INTERNAL_SERVER_ERROR,"创建订单失败");
+        Restaurant restaurant = restaurantMapper.selectById(dto.getRestaurantId());
+        if (restaurant == null || restaurant.getIsDeleted() == 1 ) {
+            throw new BusinessException(ResultCode.NOT_FOUND.getCode(),"餐厅不存在");
         }
+        // 检查餐厅是否正常
+        if (restaurant.getStatus() != Constants.RESTAURANT_STATUS_NORMAL) {
+            return CommonResult.error(ResultCode.NOT_FOUND,"餐厅休息中");
+        }
+        if(dto.getPeopleCount() <= 0) {
+            return CommonResult.error(ResultCode.BAD_REQUEST,"用餐人数必须大于0");
+        }
+        if(dto.getReservationTime().isBefore(LocalDateTime.now())){
+            return CommonResult.error(ResultCode.BAD_REQUEST,"预约时间不能早于当前时间");
+        }
+        if(!PhoneUtil.isMobile(dto.getContactPhone())){
+            return CommonResult.error(ResultCode.BAD_REQUEST,"联系电话格式错误");
+        }
+        orderService.createOrder(dto);
         return CommonResult.success();
     }
 
@@ -67,21 +62,15 @@ public class OrderController {
      * @return
      */
     @GetMapping("/list")
-    public CommonResult<?> listOrders(@RequestBody OrderQueryDTO dto){
-        try {
-            if(dto.getCurrent() < 1){
-                throw new BusinessException(ResultCode.BAD_REQUEST.getCode(),"当前页码必须为正整数");
-            }
-            if(dto.getPageSize() < 1 || dto.getPageSize() > 100){
-                throw new BusinessException(ResultCode.BAD_REQUEST.getCode(),"查询页数在1-100之间");
-            }
-            Page<OrderVO> result=orderService.listOrders(dto.getCurrent(), dto.getPageSize(),dto.getStatus());
-            return CommonResult.success(result);
-        } catch (Exception e) {
-            log.error("查询订单失败", e);
-            return CommonResult.error(ResultCode.INTERNAL_SERVER_ERROR,"查询订单失败");
+    public CommonResult<?> listOrders(OrderQueryDTO dto){
+        if(dto.getCurrent() < 1){
+            return CommonResult.error(ResultCode.BAD_REQUEST,"当前页码必须为正整数");
         }
-        
+        if(dto.getPageSize() < 1 || dto.getPageSize() > 100){
+            return CommonResult.error(ResultCode.BAD_REQUEST,"查询页数在1-100之间");
+        }
+        Page<OrderVO> result=orderService.listOrders(dto.getCurrent(), dto.getPageSize(),dto.getStatus());
+        return CommonResult.success(result); 
     }
 
     /**
@@ -89,24 +78,20 @@ public class OrderController {
      */
     @GetMapping("/{orderNo}")
     public CommonResult<OrderVO> getOrderDetail(@PathVariable String orderNo) {
-        try {
-            OrderVO orderVO=orderService.getOrderDetail(orderNo);
+        OrderVO orderVO=orderService.getOrderDetail(orderNo);
             if (orderVO==null) {
-                throw new BusinessException(ResultCode.NOT_FOUND.getCode(),"订单不存在");
+                return CommonResult.error(ResultCode.NOT_FOUND,"订单不存在");
             }
             return CommonResult.success(orderVO);
-        } catch (Exception e) {
-            log.error("查询订单详情失败", e);
-            return CommonResult.error(ResultCode.INTERNAL_SERVER_ERROR,"查询订单详情失败");
-        }
     }
 
     /**
      * 取消订单
      */
-    @PutMapping("/{id}/cancel")
-    public CommonResult<Void> cancelOrder(@PathVariable Long id) {
-        // TODO: 实现取消订单逻辑
-        return null;
+    @PutMapping("/{orderNo}/cancel")
+    public CommonResult<Void> cancelOrder(@PathVariable String orderNo) {
+        //实现取消订单逻辑（更新状态为 CANCELLED）
+        orderService.cancelOrder(orderNo);
+        return CommonResult.success();       
     }
 }
