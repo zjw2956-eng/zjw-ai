@@ -33,6 +33,10 @@ public class OrderController {
 
     /**
      * 创建订单
+     * TODO: [幂等性] 未来添加幂等Token机制防止重复提交
+     *   1. 新增 GET /api/order/token 接口，前端打开预订页时申请唯一Token
+     *   2. OrderDTO 增加 idempotentToken 字段，前端提交时携带
+     *   3. 此处校验 Token 是否存在（Redis NX），存在则放行并删除，不存在则拒绝
      */
     @PostMapping
     public CommonResult<Void> createOrder(@RequestBody OrderDTO dto) {

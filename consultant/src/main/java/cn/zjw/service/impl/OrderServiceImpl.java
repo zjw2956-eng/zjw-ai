@@ -44,6 +44,10 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, OrderInfo> implem
     private StringRedisTemplate redisTemplate;
     
     // TODO: [RabbitMQ] 集成后需加 @Transactional，配合发布者确认机制保证消息可靠性
+    // TODO: [幂等性] 在 orderMapper.insert() 前加幂等校验，防止用户重复提交
+    //   方案：Redis SETNX 检查 key: idempotent:order:{userId}:{idempotentToken}
+    //   存在 → 已处理，直接返回；不存在 → 写入并继续
+    //   兜底：order_info 表对 (user_id, restaurant_id, reservation_time) 加唯一索引
     @Override
     public void createOrder(OrderDTO dto){
         OrderInfo orderInfo=new OrderInfo();
