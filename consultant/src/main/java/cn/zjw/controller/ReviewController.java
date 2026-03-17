@@ -44,7 +44,7 @@ public class ReviewController {
     public CommonResult<?> createReview(@RequestBody @Valid ReviewDTO dto){
         log.info("发表评价:{}", dto);
         reviewService.createReview(dto);
-        return CommonResult.success(ResultCode.SUCCESS, "评价发表成功");
+        return CommonResult.success(ResultCode.SUCCESS, "评价发表成功",null);
     }
     
 
@@ -56,7 +56,7 @@ public class ReviewController {
     @PutMapping("/{id}/approve")
     public CommonResult<?> approveReview(@PathVariable Long id){
         reviewService.approveReview(id);
-        return CommonResult.success(ResultCode.SUCCESS, "评价审核通过");
+        return CommonResult.success(ResultCode.SUCCESS, "评价审核通过",null);
     }
 
     /**
@@ -67,7 +67,7 @@ public class ReviewController {
     @PutMapping("/{id}/reject")
     public CommonResult<?> rejectReview(@PathVariable Long id){
         reviewService.rejectReview(id);
-        return CommonResult.success(ResultCode.SUCCESS, "评价审核拒绝");
+        return CommonResult.success(ResultCode.SUCCESS, "评价审核拒绝",null);
     }
 
     /**
@@ -82,7 +82,7 @@ public class ReviewController {
             return CommonResult.error(ResultCode.BAD_REQUEST,"查询页数在1-100之间");
         }
         Page<ReviewVO> result=reviewService.listByRestaurantId(dto);
-        return CommonResult.success(ResultCode.SUCCESS, result);
+        return CommonResult.success(ResultCode.SUCCESS, "查询餐厅评价列表成功",result);
     }
 
 
@@ -100,7 +100,7 @@ public class ReviewController {
                 return CommonResult.error(ResultCode.BAD_REQUEST, "查询页数在1-100之间");
             }
             Page<MyReviewVO> result=reviewService.listMyReviews(current,pageSize);
-            return CommonResult.success(ResultCode.SUCCESS, result);
+            return CommonResult.success(ResultCode.SUCCESS, "查询自己的评价列表成功",result);
         }
     
     /**
@@ -110,10 +110,7 @@ public class ReviewController {
     @GetMapping("/myReviews/{id}")
     public CommonResult<MyReviewVO> getReviewDetail(@PathVariable Long id) {
         MyReviewVO result=reviewService.getReviewDetail(id);
-        if(result==null){
-            return CommonResult.error(ResultCode.NOT_FOUND, "评价不存在");
-        }
-        return CommonResult.success(ResultCode.SUCCESS, result);
+        return CommonResult.success(ResultCode.SUCCESS, "查询评价详情成功",result);
     }
     
     /**
@@ -123,7 +120,7 @@ public class ReviewController {
     @DeleteMapping("/myReviews/{id}")
     public CommonResult<Void> deleteMyReview(@PathVariable Long id){
         reviewService.deleteReview(id);
-        return CommonResult.success(ResultCode.SUCCESS);
+        return CommonResult.success(ResultCode.SUCCESS, "删除评价成功",null);
     }
 
 }

@@ -80,7 +80,7 @@ public class CommonResult<T> {
      * @return
      */
     public static <T> CommonResult<T> success(ResultCode resultCode, String msg, T data ) {
-        return new CommonResult<>(resultCode.getCode(), resultCode.getMessage(), data);
+        return new CommonResult<>(resultCode.getCode(), msg, data);
     }
 
      /**

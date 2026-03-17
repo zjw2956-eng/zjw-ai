@@ -7,6 +7,7 @@ import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import cn.zjw.common.context.UserContext;
 import cn.hutool.core.util.PhoneUtil;
+import cn.hutool.core.util.RandomUtil;
 import cn.hutool.json.JSONUtil;
 import org.springframework.stereotype.Service;
 import cn.zjw.common.constant.Constants;
@@ -14,6 +15,7 @@ import cn.zjw.pojo.dto.OrderDTO;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.concurrent.TimeUnit;
 import cn.hutool.core.bean.BeanUtil;
 import cn.zjw.common.enums.OrderStatus;
@@ -51,12 +53,27 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, OrderInfo> implem
     //   兜底：order_info 表对 (user_id, restaurant_id, reservation_time) 加唯一索引
     @Override
     public void createOrder(OrderDTO dto){
+        Restaurant restaurant = restaurantMapper.selectById(dto.getRestaurantId());
+        if (restaurant == null) {
+            throw new BusinessException(ResultCode.NOT_FOUND.getCode(),"餐厅不存在");
+        }
+        // 检查餐厅是否正常
+        if (restaurant.getStatus() != Constants.RESTAURANT_STATUS_NORMAL) {
+            throw new BusinessException(ResultCode.BAD_REQUEST.getCode(),"餐厅休息中");
+        }
+        if(!PhoneUtil.isMobile(dto.getContactPhone())){
+            throw new BusinessException(ResultCode.BAD_REQUEST.getCode(),"联系电话格式错误");
+        }
+        
         OrderInfo orderInfo=new OrderInfo();
         //用户上下文取用户ID
         Long userId=UserContext.getCurrentUserId();
         orderInfo.setUserId(userId);  // ✅ 设置用户ID
-        //设置订单号
-        String orderNo=Constants.ORDER_ID_PREFIX+System.currentTimeMillis()+userId.toString();
+        //生成订单号
+        String orderNo = Constants.ORDER_ID_PREFIX 
+            + LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMddHHmmss"))
+            + userId
+            + RandomUtil.randomNumbers(4);
         orderInfo.setOrderNo(orderNo);
         //设置状态为待确认
         orderInfo.setStatus(OrderStatus.PENDING.getCode());
@@ -133,8 +150,9 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, OrderInfo> implem
 
     @Override
     public OrderVO getOrderDetail(String orderNo){
+        Long userId=UserContext.getCurrentUserId();
         //查询缓存
-        String json=redisTemplate.opsForValue().get(Constants.REDIS_ORDER_DETAIL+orderNo);
+        String json=redisTemplate.opsForValue().get(Constants.REDIS_ORDER_DETAIL+userId+":"+orderNo);
         if(json!=null){
             if (json.isEmpty()) {//缓存中为空字符串，返回null
                 return null;
@@ -150,8 +168,11 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, OrderInfo> implem
             //缓存中没有，返回null
             log.warn("订单不存在，orderNo={}",orderNo);
             //设置缓存过期时间为2分钟,防止缓存穿透
-            redisTemplate.opsForValue().set(Constants.REDIS_ORDER_DETAIL+orderNo,"",Constants.REDIS_EMPTY_KEY_EXPIRE_TIME, TimeUnit.SECONDS);
+            redisTemplate.opsForValue().set(Constants.REDIS_ORDER_DETAIL+userId+ ":"+orderNo,"",Constants.REDIS_EMPTY_KEY_EXPIRE_TIME, TimeUnit.SECONDS);
             return null;
+        }
+        if (!orderInfo.getUserId().equals(userId)) {
+            throw new BusinessException(ResultCode.FORBIDDEN.getCode(),"订单不属于当前用户，无权查看");
         }
         OrderVO orderVO=new OrderVO();
         BeanUtil.copyProperties(orderInfo, orderVO);
@@ -163,13 +184,14 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, OrderInfo> implem
             orderVO.setRestaurantName(restaurant.getName());
         }
         //缓存订单详情,过期时间为72小时
-        redisTemplate.opsForValue().set(Constants.REDIS_ORDER_DETAIL+orderNo,JSONUtil.toJsonStr(orderVO),Constants.REDIS_EXPIRE_TIME, TimeUnit.SECONDS);
+        redisTemplate.opsForValue().set(Constants.REDIS_ORDER_DETAIL+userId+ ":"+orderNo,JSONUtil.toJsonStr(orderVO),Constants.REDIS_EXPIRE_TIME, TimeUnit.SECONDS);
         return orderVO;
     }
 
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void cancelOrder(String orderNo){
+        Long userId=UserContext.getCurrentUserId();
         LambdaQueryWrapper<OrderInfo> wrapper=new LambdaQueryWrapper<>();
         wrapper.eq(OrderInfo::getIsDeleted,0).eq(OrderInfo::getOrderNo,orderNo);
         //根据订单号查询订单
@@ -179,7 +201,7 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, OrderInfo> implem
             throw new BusinessException(ResultCode.NOT_FOUND.getCode(),"订单不存在");
         }
         //校验是否为当前用户
-        if (!UserContext.getCurrentUserId().equals(orderInfo.getUserId())) {
+        if (!userId.equals(orderInfo.getUserId())) {
             throw new BusinessException(ResultCode.FORBIDDEN.getCode(),"订单不属于当前用户，无权取消");
         }
         //校验订单状态
@@ -193,7 +215,7 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, OrderInfo> implem
         orderMapper.updateById(orderInfo);
 
         //删除缓存
-        redisTemplate.delete(Constants.REDIS_ORDER_DETAIL+orderNo);
+        redisTemplate.delete(Constants.REDIS_ORDER_DETAIL+userId+":"+orderNo);
         // TODO: [RabbitMQ] 取消成功后发送通知消息，告知用户订单已取消
         //   交换机: order.exchange，routing key: order.cancel
         //   消息体: { orderNo, userId }

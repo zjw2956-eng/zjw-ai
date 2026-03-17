@@ -22,6 +22,7 @@ import cn.zjw.common.context.UserContext;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import cn.zjw.mapper.ReviewMapper;
 import cn.hutool.core.bean.BeanUtil;
+import cn.hutool.json.JSONUtil;
 import cn.zjw.common.enums.ReviewStatus;
 import cn.zjw.pojo.entity.Restaurant;
 import cn.zjw.mapper.RestaurantMapper;
@@ -89,6 +90,9 @@ public class ReviewServiceImpl extends ServiceImpl<ReviewMapper, Review> impleme
         //构建评价实体
         Review review=new Review();
         BeanUtil.copyProperties(dto,review);
+        //将图片列表转换为JSON字符串
+        review.setImages(JSONUtil.toJsonStr(dto.getImages()));
+        
         review.setUserId(userId);
         review.setRestaurantId(restaurantId);
 
@@ -137,7 +141,7 @@ public class ReviewServiceImpl extends ServiceImpl<ReviewMapper, Review> impleme
         reviewMapper.updateById(review);
 
         //删除缓存
-        String cacheKey=Constants.REDIS_REVIEW_DETAIL + id;
+        String cacheKey=Constants.REDIS_REVIEW_DETAIL + review.getUserId() + ":" + id;
         redisTemplate.delete(cacheKey);
 
         // 同步更新评分（后续改为 MQ 异步）
@@ -168,7 +172,7 @@ public class ReviewServiceImpl extends ServiceImpl<ReviewMapper, Review> impleme
         reviewMapper.updateById(review);
 
         //删除缓存
-        String cacheKey=Constants.REDIS_REVIEW_DETAIL + id;
+        String cacheKey=Constants.REDIS_REVIEW_DETAIL + review.getUserId() + ":" + id;
         redisTemplate.delete(cacheKey);
         // TODO: [RabbitMQ] 通知用户评价未通过审核
         //   交换机: review.exchange，routing key: review.notify.user
@@ -200,6 +204,8 @@ public class ReviewServiceImpl extends ServiceImpl<ReviewMapper, Review> impleme
         }
         restaurant.setRating(avgRating);
         restaurantMapper.updateById(restaurant);
+        //删除缓存
+        redisTemplate.delete(Constants.REDIS_RESTAURANT_KEY + restaurantId);
     }
 
 
@@ -237,6 +243,8 @@ public class ReviewServiceImpl extends ServiceImpl<ReviewMapper, Review> impleme
             .map(review->{
                 ReviewVO vo=new ReviewVO();
                 BeanUtil.copyProperties(review,vo);
+                //将图片列表转换为List<String>
+                vo.setImages(JSONUtil.toList(review.getImages(), String.class));
                 //从Map中获取用户信息
                 User user=userMap.get(review.getUserId());
                 if(user!=null){
@@ -293,6 +301,8 @@ public class ReviewServiceImpl extends ServiceImpl<ReviewMapper, Review> impleme
             .map(review->{
                 MyReviewVO vo=new MyReviewVO();
                 BeanUtil.copyProperties(review,vo);
+                //将图片列表转换为List<String>
+                vo.setImages(JSONUtil.toList(review.getImages(), String.class));
                 //从Map中获取餐厅信息
                 Restaurant restaurant=restaurantMap.get(review.getRestaurantId());
                 if(restaurant!=null){
@@ -318,22 +328,24 @@ public class ReviewServiceImpl extends ServiceImpl<ReviewMapper, Review> impleme
 
     @Override
     public MyReviewVO getReviewDetail(Long id) {
+        //获取当前用户ID
+        Long userId= UserContext.getCurrentUserId();
+        //查询缓存
+        String cacheKey=Constants.REDIS_REVIEW_DETAIL + userId + ":" + id;
+        MyReviewVO cachedMyReviewVO=(MyReviewVO) redisTemplate.opsForValue().get(cacheKey);
+        if(cachedMyReviewVO!=null){
+            return cachedMyReviewVO;
+        }
+        //缓存未命中，查询数据库
         //查询评价是否存在
         Review review=reviewMapper.selectById(id);
         if(review==null){
             throw new BusinessException(ResultCode.NOT_FOUND.getCode(),"评价不存在");
         }
         //权限校验
-        if(!review.getUserId().equals(UserContext.getCurrentUserId())){
+        if(!review.getUserId().equals(userId)){
             throw new BusinessException(ResultCode.FORBIDDEN.getCode(),"无权限查看该评价");
         }
-        //查询缓存
-        String cacheKey=Constants.REDIS_REVIEW_DETAIL + id;
-        MyReviewVO cachedMyReviewVO=(MyReviewVO) redisTemplate.opsForValue().get(cacheKey);
-        if(cachedMyReviewVO!=null){
-            return cachedMyReviewVO;
-        }
-        //缓存未命中，查询数据库
         //查询餐厅名
         Restaurant restaurant=restaurantMapper.selectById(review.getRestaurantId());
         if(restaurant==null){
@@ -349,6 +361,8 @@ public class ReviewServiceImpl extends ServiceImpl<ReviewMapper, Review> impleme
         //构建VO
         MyReviewVO vo=new MyReviewVO();
         BeanUtil.copyProperties(review, vo);
+        //将图片列表转换为List<String>
+        vo.setImages(JSONUtil.toList(review.getImages(), String.class));
         vo.setRestaurantName(restaurantName);
         vo.setOrderNo(orderNo);
         vo.setStatusDesc(ReviewStatus.getDescByCode(review.getStatus()));
@@ -376,7 +390,7 @@ public class ReviewServiceImpl extends ServiceImpl<ReviewMapper, Review> impleme
             updateRestaurantRating(review.getRestaurantId());
         }
         //删除缓存
-        String cacheKey=Constants.REDIS_REVIEW_DETAIL + id;
+        String cacheKey=Constants.REDIS_REVIEW_DETAIL + review.getUserId() + ":" + id;
         redisTemplate.delete(cacheKey);
         //TODO: [RabbitMQ] 删除评价后发送通知消息，告知用户评价已删除
         //   交换机: review.exchange，routing key: review.delete
