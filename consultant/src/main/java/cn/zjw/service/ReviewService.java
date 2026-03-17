@@ -5,6 +5,7 @@ import cn.zjw.pojo.entity.Review;
 import com.baomidou.mybatisplus.extension.service.IService;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import cn.zjw.pojo.dto.ReviewQueryDTO;
+import cn.zjw.pojo.vo.MyReviewVO;
 import cn.zjw.pojo.vo.ReviewVO;
 
 public interface ReviewService extends IService<Review> {
@@ -27,4 +28,19 @@ public interface ReviewService extends IService<Review> {
      * 查询餐厅评价列表
      */
     Page<ReviewVO> listByRestaurantId(ReviewQueryDTO dto);
+
+    /**
+     * 用户查询自己的评价列表
+     */
+    Page<MyReviewVO> listMyReviews(Integer current, Integer pageSize);
+
+    /**
+     * 查询评价详情
+     */
+    MyReviewVO getReviewDetail(Long id);
+
+    /**
+     * 删除评价
+     */
+    void deleteReview(Long id);
 }

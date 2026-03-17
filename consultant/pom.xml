@@ -107,6 +107,12 @@
             <artifactId>spring-security-crypto</artifactId>
         </dependency>
 
+        <!-- Jackson Java 8 时间类型支持（LocalDateTime 序列化） -->
+        <dependency>
+            <groupId>com.fasterxml.jackson.datatype</groupId>
+            <artifactId>jackson-datatype-jsr310</artifactId>
+        </dependency>
+
     </dependencies>
 
     <build>

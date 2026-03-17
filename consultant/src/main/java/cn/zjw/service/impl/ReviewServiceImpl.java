@@ -9,6 +9,7 @@ import java.math.BigDecimal;
 import java.util.stream.Collectors;
 
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.redis.core.RedisTemplate;
 
 import cn.zjw.mapper.OrderMapper;
 import cn.zjw.pojo.entity.OrderInfo;
@@ -16,6 +17,7 @@ import cn.zjw.pojo.dto.ReviewDTO;
 import cn.zjw.common.enums.OrderStatus;
 import cn.zjw.common.exception.BusinessException;
 import cn.zjw.common.result.ResultCode;
+import cn.zjw.common.constant.Constants;
 import cn.zjw.common.context.UserContext;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import cn.zjw.mapper.ReviewMapper;
@@ -24,11 +26,15 @@ import cn.zjw.common.enums.ReviewStatus;
 import cn.zjw.pojo.entity.Restaurant;
 import cn.zjw.mapper.RestaurantMapper;
 import org.springframework.transaction.annotation.Transactional;
+
+import java.util.Collections;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.TimeUnit;
 import java.util.Map;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import cn.zjw.pojo.dto.ReviewQueryDTO;
+import cn.zjw.pojo.vo.MyReviewVO;
 import cn.zjw.pojo.vo.ReviewVO;
 import cn.zjw.pojo.entity.User;
 import cn.zjw.mapper.UserMapper;
@@ -48,6 +54,9 @@ public class ReviewServiceImpl extends ServiceImpl<ReviewMapper, Review> impleme
 
     @Autowired
     private UserMapper userMapper;
+
+    @Autowired
+    private RedisTemplate<String,Object> redisTemplate;
 
     @Override
     public void createReview(ReviewDTO dto){
@@ -127,6 +136,10 @@ public class ReviewServiceImpl extends ServiceImpl<ReviewMapper, Review> impleme
         review.setStatus(ReviewStatus.APPROVED.getCode());
         reviewMapper.updateById(review);
 
+        //删除缓存
+        String cacheKey=Constants.REDIS_REVIEW_DETAIL + id;
+        redisTemplate.delete(cacheKey);
+
         // 同步更新评分（后续改为 MQ 异步）
         updateRestaurantRating(review.getRestaurantId());
         // TODO: [RabbitMQ] 评分更新：后续替换为发送 MQ 消息，消费者异步执行 updateRestaurantRating()
@@ -153,6 +166,10 @@ public class ReviewServiceImpl extends ServiceImpl<ReviewMapper, Review> impleme
         //更新评价状态
         review.setStatus(ReviewStatus.REJECTED.getCode());
         reviewMapper.updateById(review);
+
+        //删除缓存
+        String cacheKey=Constants.REDIS_REVIEW_DETAIL + id;
+        redisTemplate.delete(cacheKey);
         // TODO: [RabbitMQ] 通知用户评价未通过审核
         //   交换机: review.exchange，routing key: review.notify.user
         //   消息体: { userId: review.getUserId(), reviewId: id }
@@ -199,6 +216,12 @@ public class ReviewServiceImpl extends ServiceImpl<ReviewMapper, Review> impleme
         // 2. 转换为VO，要关联查询用户表获取用户昵称和头像
         //获取评价列表
         List<Review> reviewList=firstPage.getRecords();
+        //空分页判断
+        if (reviewList.isEmpty()) {
+            Page<ReviewVO> emptyPage = new Page<>(firstPage.getCurrent(), firstPage.getSize(), 0);
+            emptyPage.setRecords(Collections.emptyList());
+            return emptyPage;
+        }
 
         //提取所有userId
         Set<Long> userIds= reviewList.stream().map(Review::getUserId).collect(Collectors.toSet());
@@ -232,4 +255,134 @@ public class ReviewServiceImpl extends ServiceImpl<ReviewMapper, Review> impleme
         resultPage.setRecords(voList);
         return resultPage;      
     }
+
+    @Override
+    public Page<MyReviewVO> listMyReviews(Integer current, Integer pageSize) {
+        Long userId= UserContext.getCurrentUserId();
+        LambdaQueryWrapper<Review> wrapper = new LambdaQueryWrapper<>();
+        wrapper.eq(Review::getUserId,userId)
+            .orderByDesc(Review::getCreateTime);
+        Page<Review> firstPage=this.page(new Page<>(current,pageSize),wrapper);
+
+        List<Review> reviewList=firstPage.getRecords();
+        //空分页判断
+        if (reviewList.isEmpty()) {
+            Page<MyReviewVO> emptyPage = new Page<>(firstPage.getCurrent(), firstPage.getSize(), 0);
+            emptyPage.setRecords(Collections.emptyList());
+            return emptyPage;
+        }
+        //关联查询餐厅名和订单号
+        //提取所有餐厅ID，并进行批量查询
+        Set<Long> restaurantIds=reviewList.stream().map(Review::getRestaurantId).collect(Collectors.toSet());
+        List<Restaurant> restaurantList = restaurantMapper.selectBatchIds(restaurantIds);
+
+        //提取所有订单ID，并进行批量查询
+        Set<Long> orderIds=reviewList.stream().map(Review::getOrderId).collect(Collectors.toSet());
+        List<OrderInfo> orderList=orderMapper.selectBatchIds(orderIds);
+
+        //构建Map映射
+        //餐厅ID -> Restaurant
+        Map<Long,Restaurant> restaurantMap=restaurantList
+            .stream().collect(Collectors.toMap(Restaurant::getId, r->r));
+        //订单ID -> OrderInfo
+        Map<Long,OrderInfo> orderMap = orderList
+            .stream().collect(Collectors.toMap(OrderInfo::getId, o->o));
+
+        //组装VO
+        List<MyReviewVO> voList=reviewList.stream()
+            .map(review->{
+                MyReviewVO vo=new MyReviewVO();
+                BeanUtil.copyProperties(review,vo);
+                //从Map中获取餐厅信息
+                Restaurant restaurant=restaurantMap.get(review.getRestaurantId());
+                if(restaurant!=null){
+                    vo.setRestaurantName(restaurant.getName());
+                }
+                //从Map中获取订单信息
+                OrderInfo order=orderMap.get(review.getOrderId());
+                if(order!=null){
+                    vo.setOrderNo(order.getOrderNo());
+                }
+                vo.setStatusDesc(ReviewStatus.getDescByCode(review.getStatus()));
+                return vo;
+            }).collect(Collectors.toList());
+        //构造结果分页
+        Page<MyReviewVO> resultPage=new Page<>(
+            firstPage.getCurrent(),
+            firstPage.getSize(),
+            firstPage.getTotal()
+        );
+        resultPage.setRecords(voList);
+        return resultPage;
+    }
+
+    @Override
+    public MyReviewVO getReviewDetail(Long id) {
+        //查询评价是否存在
+        Review review=reviewMapper.selectById(id);
+        if(review==null){
+            throw new BusinessException(ResultCode.NOT_FOUND.getCode(),"评价不存在");
+        }
+        //权限校验
+        if(!review.getUserId().equals(UserContext.getCurrentUserId())){
+            throw new BusinessException(ResultCode.FORBIDDEN.getCode(),"无权限查看该评价");
+        }
+        //查询缓存
+        String cacheKey=Constants.REDIS_REVIEW_DETAIL + id;
+        MyReviewVO cachedMyReviewVO=(MyReviewVO) redisTemplate.opsForValue().get(cacheKey);
+        if(cachedMyReviewVO!=null){
+            return cachedMyReviewVO;
+        }
+        //缓存未命中，查询数据库
+        //查询餐厅名
+        Restaurant restaurant=restaurantMapper.selectById(review.getRestaurantId());
+        if(restaurant==null){
+            throw new BusinessException(ResultCode.NOT_FOUND.getCode(),"餐厅不存在");
+        }
+        //查询订单号
+        OrderInfo orderInfo=orderMapper.selectById(review.getOrderId());
+        if(orderInfo==null){
+            throw new BusinessException(ResultCode.NOT_FOUND.getCode(),"订单不存在");
+        }
+        String restaurantName=restaurant.getName();
+        String orderNo=orderInfo.getOrderNo();
+        //构建VO
+        MyReviewVO vo=new MyReviewVO();
+        BeanUtil.copyProperties(review, vo);
+        vo.setRestaurantName(restaurantName);
+        vo.setOrderNo(orderNo);
+        vo.setStatusDesc(ReviewStatus.getDescByCode(review.getStatus()));
+
+        //缓存VO
+        redisTemplate.opsForValue().set(cacheKey, vo, Constants.REDIS_EXPIRE_TIME, TimeUnit.SECONDS);
+        return vo;
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void deleteReview(Long id) {
+        Review review=reviewMapper.selectById(id);
+        if(review==null){
+            throw new BusinessException(ResultCode.NOT_FOUND.getCode(),"评价不存在");
+        }
+        if(!review.getUserId().equals(UserContext.getCurrentUserId())){
+            throw new BusinessException(ResultCode.FORBIDDEN.getCode(),"无权限删除该评价");
+        }
+        //删除评价,调用MybatisPlus的逻辑删除方法
+        reviewMapper.deleteById(id);
+
+        if (review.getStatus().equals(ReviewStatus.APPROVED.getCode())) {
+            //更新餐厅评分
+            updateRestaurantRating(review.getRestaurantId());
+        }
+        //删除缓存
+        String cacheKey=Constants.REDIS_REVIEW_DETAIL + id;
+        redisTemplate.delete(cacheKey);
+        //TODO: [RabbitMQ] 删除评价后发送通知消息，告知用户评价已删除
+        //   交换机: review.exchange，routing key: review.delete
+        //   消息体: { userId: review.getUserId(), reviewId: id }
+        //   消费者: 向用户推送"您的评价已删除"通知
+    }
+
+
 }

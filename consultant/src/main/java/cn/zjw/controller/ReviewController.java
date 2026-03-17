@@ -8,17 +8,22 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import jakarta.validation.Valid;
-
+import cn.zjw.common.context.UserContext;
 import cn.zjw.common.result.CommonResult;
 import cn.zjw.common.result.ResultCode;
 import cn.zjw.pojo.dto.ReviewDTO;
 import cn.zjw.service.ReviewService;
 import cn.zjw.pojo.dto.ReviewQueryDTO;
+import cn.zjw.pojo.vo.MyReviewVO;
 import cn.zjw.pojo.vo.ReviewVO;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+
 
 
 /**
@@ -81,6 +86,44 @@ public class ReviewController {
     }
 
 
-
+    /**
+     * 用户查询自己的评价列表
+     */
+    @GetMapping("/myReviews")
+    public CommonResult<Page<MyReviewVO>> listMyReviews(
+        @RequestParam(defaultValue = "1") Integer current,
+        @RequestParam(defaultValue = "10") Integer pageSize){
+            if(current < 1){
+                return CommonResult.error(ResultCode.BAD_REQUEST, "当前页码必须为正整数");
+            }
+            if(pageSize<1 || pageSize>100){
+                return CommonResult.error(ResultCode.BAD_REQUEST, "查询页数在1-100之间");
+            }
+            Page<MyReviewVO> result=reviewService.listMyReviews(current,pageSize);
+            return CommonResult.success(ResultCode.SUCCESS, result);
+        }
+    
+    /**
+     * 查询评价详情
+     * @param id 评价ID
+     */
+    @GetMapping("/myReviews/{id}")
+    public CommonResult<MyReviewVO> getReviewDetail(@PathVariable Long id) {
+        MyReviewVO result=reviewService.getReviewDetail(id);
+        if(result==null){
+            return CommonResult.error(ResultCode.NOT_FOUND, "评价不存在");
+        }
+        return CommonResult.success(ResultCode.SUCCESS, result);
+    }
+    
+    /**
+     * 删除评价
+     * @param id 评价ID
+     */
+    @DeleteMapping("/myReviews/{id}")
+    public CommonResult<Void> deleteMyReview(@PathVariable Long id){
+        reviewService.deleteReview(id);
+        return CommonResult.success(ResultCode.SUCCESS);
+    }
 
 }

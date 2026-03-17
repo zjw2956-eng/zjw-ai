@@ -23,6 +23,7 @@ import cn.zjw.pojo.vo.OrderVO;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import java.util.stream.Collectors;
 import java.util.Set;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import lombok.extern.slf4j.Slf4j;
@@ -89,6 +90,12 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, OrderInfo> implem
 
         //转换为VO列表VO
         List<OrderInfo> orderList=Firstpage.getRecords();
+        //空分页判断
+        if (orderList.isEmpty()) {
+            Page<OrderVO> emptyPage = new Page<>(Firstpage.getCurrent(), Firstpage.getSize(), 0);
+            emptyPage.setRecords(Collections.emptyList());
+            return emptyPage;
+        }
         Set<Long> restaurantIds=orderList.stream()
                 .map(OrderInfo::getRestaurantId)
                 .collect(Collectors.toSet());

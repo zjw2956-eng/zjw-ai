@@ -3,7 +3,8 @@ package cn.zjw.common.constant;
 public class Constants {
 
     //Redis键值对
-    
+    //评价详情缓存键
+    public static final String REDIS_REVIEW_DETAIL = "review:detail:";
     //订单详情缓存键
     public static final String REDIS_ORDER_DETAIL = "order:detail:";
     //用户token缓存键
