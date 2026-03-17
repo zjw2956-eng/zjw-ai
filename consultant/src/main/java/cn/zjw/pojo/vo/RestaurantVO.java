@@ -22,4 +22,5 @@ public class RestaurantVO {
     private String images;
     private String description;
     private Integer status;
+    private List<DishVO> dishes; // 菜品列表
 }

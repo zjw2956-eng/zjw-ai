@@ -20,4 +20,5 @@ public class DishVO {
     private String category;
     private Integer isRecommend;
     private Integer status;
+    private String statusDesc;
 }

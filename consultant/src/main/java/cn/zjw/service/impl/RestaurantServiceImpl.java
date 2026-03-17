@@ -3,12 +3,16 @@ package cn.zjw.service.impl;
 import cn.hutool.core.bean.BeanUtil;
 import cn.hutool.json.JSONUtil;
 import cn.zjw.common.constant.Constants;
+import cn.zjw.common.enums.DishStatus;
 import cn.zjw.common.exception.BusinessException;
 import cn.zjw.common.result.CommonResult;
 import cn.zjw.common.result.ResultCode;
+import cn.zjw.mapper.DishMapper;
 import cn.zjw.mapper.RestaurantMapper;
 import cn.zjw.pojo.dto.RestaurantDTO;
+import cn.zjw.pojo.entity.Dish;
 import cn.zjw.pojo.entity.Restaurant;
+import cn.zjw.pojo.vo.DishVO;
 import cn.zjw.pojo.vo.RestaurantVO;
 import cn.zjw.service.RestaurantService;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
@@ -36,6 +40,9 @@ public class RestaurantServiceImpl extends ServiceImpl<RestaurantMapper, Restaur
 
     @Autowired
     private StringRedisTemplate stringRedisTemplate;
+
+    @Autowired
+    private DishMapper dishMapper;
 
     @Override
     public Page<RestaurantVO> listRestaurants(Integer current, Integer size,
@@ -98,11 +105,25 @@ public class RestaurantServiceImpl extends ServiceImpl<RestaurantMapper, Restaur
         // 缓存未命中，查数据库
         Restaurant restaurant = restaurantMapper.selectById(id);
         if (restaurant == null) {
-            throw new BusinessException(404, "餐厅不存在");
+            throw new BusinessException(ResultCode.NOT_FOUND.getCode(), "餐厅不存在");
         }
+        //查询菜品
+        LambdaQueryWrapper<Dish> wrapper = new LambdaQueryWrapper<Dish>()
+            .eq(Dish::getRestaurantId, id)
+            .eq(Dish::getStatus, DishStatus.ON_SALE.getCode())
+            .eq(Dish::getIsDeleted, 0)
+            .orderByDesc(Dish::getIsRecommend);
+        List<Dish> dishList= dishMapper.selectList(wrapper);
 
+        List<DishVO> dishVOList=dishList.stream().map(d->BeanUtil.copyProperties(d, DishVO.class)).collect(Collectors.toList());
+            
         // Entity → VO，写入缓存
         RestaurantVO restaurantVO = BeanUtil.copyProperties(restaurant, RestaurantVO.class);
+        //设置菜品列表
+        restaurantVO.setDishes(dishVOList);
+        // TODO: [缓存一致性] 当菜品状态变更（上架/下架/新增/删除）时，需删除餐厅缓存
+        //   涉及接口：DishService.addDish()、DishService.updateDishStatus() 等
+        //   删除方式：stringRedisTemplate.delete(Constants.REDIS_RESTAURANT_KEY + restaurantId)
         stringRedisTemplate.opsForValue().set(cacheKey, JSONUtil.toJsonStr(restaurantVO),
                 Constants.REDIS_EXPIRE_TIME, TimeUnit.SECONDS);
         return restaurantVO;
