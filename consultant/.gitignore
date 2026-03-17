@@ -1,0 +1,22 @@
+# Maven 构建输出
+target/
+
+# IDEA
+.idea/
+*.iml
+*.iws
+*.ipr
+
+# VSCode
+.vscode/
+
+# Claude
+.claude/
+
+# 日志
+*.log
+logs/
+
+# 系统文件
+.DS_Store
+Thumbs.db

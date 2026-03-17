@@ -12,7 +12,6 @@ import org.springframework.beans.factory.annotation.Autowired;
 
 import cn.zjw.mapper.OrderMapper;
 import cn.zjw.pojo.entity.OrderInfo;
-import cn.zjw.pojo.entity.Review;
 import cn.zjw.pojo.dto.ReviewDTO;
 import cn.zjw.common.enums.OrderStatus;
 import cn.zjw.common.exception.BusinessException;
@@ -25,12 +24,14 @@ import cn.zjw.common.enums.ReviewStatus;
 import cn.zjw.pojo.entity.Restaurant;
 import cn.zjw.mapper.RestaurantMapper;
 import org.springframework.transaction.annotation.Transactional;
-import cn.zjw.pojo.entity.User;
-import cn.zjw.mapper.UserMapper;
 import java.util.List;
 import java.util.Set;
 import java.util.Map;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import cn.zjw.pojo.dto.ReviewQueryDTO;
 import cn.zjw.pojo.vo.ReviewVO;
+import cn.zjw.pojo.entity.User;
+import cn.zjw.mapper.UserMapper;
 
 @Service
 public class ReviewServiceImpl extends ServiceImpl<ReviewMapper, Review> implements ReviewService {
@@ -219,12 +220,13 @@ public class ReviewServiceImpl extends ServiceImpl<ReviewMapper, Review> impleme
                     vo.setUserNickname(user.getNickname());
                     vo.setUserAvatar(user.getAvatar());
                 }
+                return vo;
             }).collect(Collectors.toList());
 
         //构造结果分页
         Page<ReviewVO> resultPage = new Page<>(
             firstPage.getCurrent(),
-            firstPage.getPageSize(),
+            firstPage.getSize(),
             firstPage.getTotal()
         );
         resultPage.setRecords(voList);
