@@ -30,25 +30,25 @@
         <java.version>17</java.version>
     </properties>
     <dependencies>
-        <!-- LangChain4j 核心 -->
+        <!-- LangChain4j 核心（@AiService、@Tool、RAG 等注解支持） -->
         <dependency>
             <groupId>dev.langchain4j</groupId>
             <artifactId>langchain4j-spring-boot-starter</artifactId>
-            <version>0.36.2</version>
+            <version>1.0.1-beta6</version>
         </dependency>
 
-        <!-- 通义千问 -->
+        <!-- 通义千问（OpenAI兼容接口，自动读取 application.yaml 中的 langchain4j.open-ai 配置） -->
         <dependency>
             <groupId>dev.langchain4j</groupId>
-            <artifactId>langchain4j-open-ai</artifactId>
-            <version>0.36.2</version>
+            <artifactId>langchain4j-open-ai-spring-boot-starter</artifactId>
+            <version>1.0.1-beta6</version>
         </dependency>
 
-        <!-- Redis向量库 -->
+        <!-- Redis 向量库（社区模块，用于 RAG EmbeddingStore） -->
         <dependency>
             <groupId>dev.langchain4j</groupId>
-            <artifactId>langchain4j-redis</artifactId>
-            <version>0.36.2</version>
+            <artifactId>langchain4j-community-redis-spring-boot-starter</artifactId>
+            <version>1.0.1-beta6</version>
         </dependency>
 
         <dependency>
