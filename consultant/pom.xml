@@ -30,6 +30,13 @@
         <java.version>17</java.version>
     </properties>
     <dependencies>
+
+
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-webflux</artifactId>
+        </dependency>
+        
         <!-- LangChain4j 核心（@AiService、@Tool、RAG 等注解支持） -->
         <dependency>
             <groupId>dev.langchain4j</groupId>
