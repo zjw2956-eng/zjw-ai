@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 这是一个基于 Spring Boot 3.5.9 和 LangChain4j 的 **智能美食推荐与餐厅管理系统**。使用阿里云通义千问（Qwen）作为大语言模型，结合 RAG（检索增强生成）和 Function Calling 技术，提供智能美食咨询、餐厅预订、用户管理、订单管理等完整功能。
 
-**技术栈**: Spring Boot 3.5.9 + LangChain4j 1.0.1-beta6 + MyBatis-Plus 3.5.x + 通义千问 + Redis + MySQL + Vue 3
+**技术栈**: Spring Boot 3.5.9 + LangChain4j 1.0.1-beta6 + MyBatis-Plus 3.5.x + 通义千问 + Redis + MySQL + Vue 3 + Hutool
 
 **项目结构**: 项目代码位于 `consultant/` 子目录下
 
@@ -265,45 +265,47 @@ D:\aizjw\aiwork\                        # 项目根目录
 │   │   ├── aiservice/
 │   │   │   └── ConsultantService.java          # AI 服务接口（核心）
 │   │   ├── common/                             # 公共模块
-│   │   │   ├── constant/
-│   │   │   │   └── Constants.java              # 常量类
-│   │   │   ├── context/
-│   │   │   │   └── UserContext.java            # 用户上下文（ThreadLocal）
-│   │   │   ├── enums/
-│   │   │   │   └── OrderStatus.java            # 订单状态枚举
-│   │   │   ├── exception/
-│   │   │   │   ├── BusinessException.java      # 业务异常
-│   │   │   │   └── UnauthorizedException.java  # 未授权异常
-│   │   │   ├── result/
-│   │   │   │   ├── Result.java                 # 统一返回结果
-│   │   │   │   ├── ResultCode.java             # 返回码枚举
-│   │   │   │   └── PageResult.java             # 分页返回结果
-│   │   │   └── utils/
-│   │   │       └── JwtUtil.java                # JWT工具类
-│   │   ├── Config/
-│   │   │   ├── CommonConfig.java               # AI配置（RAG、记忆、向量库）
+│   │   │   ├── constant/Constants.java         # 常量类
+│   │   │   ├── context/UserContext.java        # 用户上下文（ThreadLocal）
+│   │   │   ├── enums/                          # 枚举（OrderStatus、DishStatus、ReviewStatus）
+│   │   │   ├── exception/                      # 业务异常、未授权异常
+│   │   │   ├── model/PageParams.java           # 分页参数
+│   │   │   ├── result/CommonResult.java        # 统一返回结果
+│   │   │   ├── result/ResultCode.java          # 返回码枚举
+│   │   │   ├── result/PageResult.java          # 分页返回结果
+│   │   │   └── utils/JwtUtil.java              # JWT工具类
+│   │   ├── config/
+│   │   │   ├── AiConfig.java                   # AI配置（RAG、记忆、向量库）
 │   │   │   ├── MybatisPlusConfig.java          # MyBatis-Plus配置
+│   │   │   ├── RedisConfig.java                # Redis配置
 │   │   │   └── WebMvcConfig.java               # Web MVC配置
 │   │   ├── controller/                         # 控制层
 │   │   │   ├── ChatController.java             # AI聊天控制器
 │   │   │   ├── UserController.java             # 用户控制器
 │   │   │   ├── RestaurantController.java       # 餐厅控制器
-│   │   │   └── OrderController.java            # 订单控制器
+│   │   │   ├── OrderController.java            # 订单控制器
+│   │   │   ├── ReviewController.java           # 评价控制器
+│   │   │   └── DishController.java             # 菜品控制器
 │   │   ├── service/                            # 业务层
-│   │   │   ├── UserService.java                # 用户Service接口
-│   │   │   ├── RestaurantService.java          # 餐厅Service接口
-│   │   │   ├── OrderService.java               # 订单Service接口
-│   │   │   ├── FoodReservationService.java     # 餐厅预订业务逻辑
+│   │   │   ├── UserService.java
+│   │   │   ├── RestaurantService.java
+│   │   │   ├── OrderService.java
+│   │   │   ├── ReviewService.java
+│   │   │   ├── DishService.java
+│   │   │   ├── FoodReservationService.java
 │   │   │   └── impl/
-│   │   │       ├── UserServiceImpl.java        # 用户Service实现
-│   │   │       ├── RestaurantServiceImpl.java  # 餐厅Service实现
-│   │   │       └── OrderServiceImpl.java       # 订单Service实现
+│   │   │       ├── UserServiceImpl.java
+│   │   │       ├── RestaurantServiceImpl.java
+│   │   │       ├── OrderServiceImpl.java
+│   │   │       ├── ReviewServiceImpl.java
+│   │   │       └── DishServiceImpl.java
 │   │   ├── mapper/                             # 数据访问层
-│   │   │   ├── UserMapper.java                 # 用户Mapper
-│   │   │   ├── RestaurantMapper.java           # 餐厅Mapper
-│   │   │   ├── OrderMapper.java                # 订单Mapper
-│   │   │   ├── ReviewMapper.java               # 评价Mapper
-│   │   │   └── FoodReservationMapper.java      # 预订Mapper
+│   │   │   ├── UserMapper.java
+│   │   │   ├── RestaurantMapper.java
+│   │   │   ├── OrderMapper.java
+│   │   │   ├── ReviewMapper.java
+│   │   │   ├── DishMapper.java
+│   │   │   └── FoodReservationMapper.java
 │   │   ├── pojo/                               # 实体类
 │   │   │   ├── entity/                         # 数据库实体
 │   │   │   │   ├── User.java                   # 用户实体
@@ -374,21 +376,24 @@ D:\aizjw\aiwork\                        # 项目根目录
 ### 当前开发状态
 
 **✅ 已完成**:
-- MVC 架构框架搭建（43个Java文件）
+- MVC 架构框架搭建
 - 数据库表结构设计（7张表）
 - AI 聊天功能（RAG + Function Calling）
-- 统一返回结果封装
+- 统一返回结果封装（`CommonResult`）
 - 全局异常处理
 - MyBatis-Plus 集成
-- JWT 工具类框架
+- JWT 工具类 + 登录拦截器（Token 校验 + Redis 单点登录）
+- 用户注册/登录（BCrypt 加密 + JWT + Redis）
+- 餐厅分页查询、餐厅详情（含 Redis 缓存）
+- 订单创建、查询、取消
+- 评价发表、审核、查询、删除
+- 菜品相关接口（DishController/DishService）
 
 **🚧 待实现**:
-- 用户注册/登录的具体业务逻辑
-- JWT Token 生成和校验逻辑
-- 登录拦截器的 Token 校验
-- 餐厅查询/详情接口的具体实现
-- 订单管理接口的具体实现
-- 前端用户界面（目前只有AI聊天界面）
+- 餐厅新增/修改接口（`addRestaurant`、`updateRestaurant` 有 TODO）
+- 缓存一致性：菜品变更时删除餐厅缓存
+- 订单幂等性校验
+- 前端用户界面（目前只有 AI 聊天界面）
 
 ### 修改 RAG 知识库
 
@@ -445,10 +450,10 @@ LangChain4j 的日志级别设置为 `debug`，会输出：
 参考 `项目升级规划.md` 文档，按优先级实现以下功能：
 
 ### 第一阶段：完善基础功能
-1. 实现用户注册/登录逻辑（JWT + Redis）
-2. 实现登录拦截器的 Token 校验
-3. 实现餐厅查询/详情接口
-4. 实现订单管理接口
+1. ✅ 实现用户注册/登录逻辑（JWT + Redis）
+2. ✅ 实现登录拦截器的 Token 校验
+3. ✅ 实现餐厅查询/详情接口
+4. ✅ 实现订单管理接口
 
 ### 第二阶段：增强功能
 1. 添加用户标签系统（口味偏好）

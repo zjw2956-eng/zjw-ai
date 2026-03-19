@@ -32,7 +32,8 @@ import reactor.core.publisher.Flux;
     wiringMode = AiServiceWiringMode.EXPLICIT,
     streamingChatModel = "openAiStreamingChatModel",
     chatMemoryProvider = "chatMemoryProvider",
-    contentRetriever = "contentRetriever"
+    contentRetriever = "contentRetriever",
+    tools = {"foodReservationTool"}
 )
 public interface ConsultantService {
     
