@@ -6,6 +6,10 @@ import java.time.format.DateTimeFormatter;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+
+import cn.hutool.core.util.PhoneUtil;
+import cn.hutool.json.JSONUtil;
 import cn.zjw.mapper.ReservationMapper;
 import cn.zjw.pojo.entity.Reservation;
 import dev.langchain4j.agent.tool.P;
@@ -33,6 +37,10 @@ public class FoodReservationTool {
                     DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm"));
             Reservation reservation = new Reservation();
             reservation.setName(name);
+            //校验手机号
+            if(!PhoneUtil.isMobile(phone)){
+                return "手机号格式错误";
+            }
             reservation.setPhone(phone);
             reservation.setRestaurantName(restaurantName);
             reservation.setReservationTime(reservationTimeObj);
@@ -45,4 +53,32 @@ public class FoodReservationTool {
         }
     }
     
+
+    /**
+     * 查询预订信息
+     * @return 预订信息
+     */
+    @Tool("查询餐厅预定信息，需要提供预订人姓名、电话")
+    public String findReservation(
+        @P("预订人姓名") String name,
+        @P("预订人电话") String phone) {
+        try {
+            //校验手机号
+            if(!PhoneUtil.isMobile(phone)){
+                return "手机号格式错误";
+            }
+            LambdaQueryWrapper<Reservation> wrapper=new LambdaQueryWrapper<>();
+            wrapper.eq(Reservation::getName, name)
+                    .eq(Reservation::getPhone, phone)
+                    .orderByDesc(Reservation::getCreateTime)
+                    .last("limit 1");
+            Reservation reservation = reservationMapper.selectOne(wrapper);
+            if(reservation==null){
+                return "没有找到预订信息";
+            }
+            return "预订信息：" + JSONUtil.toJsonStr(reservation);
+        } catch (Exception e) {
+            return "查询失败：" + e.getMessage();
+        }
+    }
 }

@@ -36,6 +36,6 @@ import reactor.core.publisher.Flux;
     tools = {"foodReservationTool"}
 )
 public interface ConsultantService {
-    
+    @SystemMessage(fromResource = "system.txt")
     Flux<String> chat(@MemoryId String memoryId, @UserMessage String message);
 }
