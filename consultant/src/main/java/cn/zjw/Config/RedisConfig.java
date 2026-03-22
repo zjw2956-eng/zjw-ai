@@ -4,6 +4,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.data.redis.connection.RedisConnectionFactory;
 import org.springframework.data.redis.core.RedisTemplate;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.serializer.StringRedisSerializer;
 import org.springframework.data.redis.serializer.GenericJackson2JsonRedisSerializer;
 
@@ -11,6 +12,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.fasterxml.jackson.annotation.JsonTypeInfo;
+
+import java.nio.charset.StandardCharsets;
 
 /**
  * Redis配置类
@@ -49,5 +52,20 @@ public class RedisConfig {
         template.afterPropertiesSet();
         return template;
     }
-    
+
+
+    @Bean
+    public StringRedisTemplate stringRedisTemplate(RedisConnectionFactory factory){
+        StringRedisTemplate template= new StringRedisTemplate();
+        template.setConnectionFactory(factory);
+        //明确指定UTF-8编码
+        StringRedisSerializer utf8Serializer = new StringRedisSerializer(StandardCharsets.UTF_8);
+        template.setKeySerializer(utf8Serializer);
+        template.setValueSerializer(utf8Serializer);
+        template.setHashKeySerializer(utf8Serializer);
+        template.setHashValueSerializer(utf8Serializer);
+
+        template.afterPropertiesSet();
+        return template;
+    }
 }
