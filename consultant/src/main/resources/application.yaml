@@ -20,15 +20,15 @@ langchain4j:
   community:
     dashscope:
       chat-model:
-        api-key: sk-69be88807ab54276b51ec1528a0b5a98
+        api-key: ${dashscope.api-key}
         model-name: qwen-plus
         temperature: 0.7
       streaming-chat-model:
-          api-key: sk-69be88807ab54276b51ec1528a0b5a98
+          api-key: ${dashscope.api-key}
           model-name: qwen-plus
           temperature: 0.7
       embedding-model:
-        api-key: sk-69be88807ab54276b51ec1528a0b5a98
+        api-key: ${dashscope.api-key}
         model-name: text-embedding-v4
 
 # MyBatis-Plus配置
