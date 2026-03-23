@@ -6,7 +6,7 @@ import java.util.List;
 
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.actuate.logging.LoggersEndpoint;
+
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Component;
 
@@ -23,8 +23,6 @@ public class RedisChatMemoryStore implements ChatMemoryStore{
 
     @Autowired
     private StringRedisTemplate stringRedisTemplate;
-    @Autowired
-    private LoggersEndpoint loggersEndpoint;
 
 
     /**
@@ -59,7 +57,48 @@ public class RedisChatMemoryStore implements ChatMemoryStore{
     @Override
     public void updateMessages(Object memoryId, List<ChatMessage> messages) {
         log.info("保存会话记忆："+memoryId+",消息数量："+messages.size());
-        String json = ChatMessageSerializer.messagesToJson(messages);
+        //修复消息顺序：确保第一条非系统消息是USerMessage
+        List<ChatMessage> fixedMessages=fixMessageOrder(messages);
+        String json = ChatMessageSerializer.messagesToJson(fixedMessages);
         stringRedisTemplate.opsForValue().set(KEY_PREFIX + memoryId, json, TTL);
     }
+
+
+    /**
+     * 修复消息顺序，确保第一条非系统消息是 UserMessage
+     */
+    private List<ChatMessage> fixMessageOrder(List<ChatMessage> messages) {
+        if (messages == null || messages.size() < 2) {
+            return messages;
+        }
+
+        // 找到第一条非系统消息的索引
+        int firstNonSystemIndex = -1;
+        for (int i = 0; i < messages.size(); i++) {
+            if (!(messages.get(i) instanceof dev.langchain4j.data.message.SystemMessage)) {
+                firstNonSystemIndex = i;
+                break;
+            }
+        }
+
+        // 如果第一条非系统消息不是 UserMessage，需要调整
+        if (firstNonSystemIndex != -1
+                && !(messages.get(firstNonSystemIndex) instanceof dev.langchain4j.data.message.UserMessage)) {
+
+            // 找到第一条 UserMessage
+            for (int i = firstNonSystemIndex + 1; i < messages.size(); i++) {
+                if (messages.get(i) instanceof dev.langchain4j.data.message.UserMessage) {
+                    // 交换位置
+                    List<ChatMessage> fixed = new java.util.ArrayList<>(messages);
+                    ChatMessage temp = fixed.get(firstNonSystemIndex);
+                    fixed.set(firstNonSystemIndex, fixed.get(i));
+                    fixed.set(i, temp);
+                    return fixed;
+                }
+            }
+        }
+
+        return messages;
+    }
+
 }

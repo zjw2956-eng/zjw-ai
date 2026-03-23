@@ -46,6 +46,11 @@ class AiHelperServiceTest {
     //     System.out.println(result.content());
     // }
 
+//     @Test
+//     void chatWithTool() {
+//         String result = aiHelperService.chat(123,"我想预订餐厅");
+//         System.out.println(result);
+//     }
 
 
 }
