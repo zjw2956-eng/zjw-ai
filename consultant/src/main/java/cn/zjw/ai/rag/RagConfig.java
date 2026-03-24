@@ -1,4 +1,4 @@
-package cn.zjw.rag;
+package cn.zjw.ai.rag;
 
 import dev.langchain4j.community.store.embedding.redis.RedisEmbeddingStore;
 import dev.langchain4j.data.document.Document;

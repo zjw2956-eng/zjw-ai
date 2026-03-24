@@ -1,6 +1,8 @@
 package cn.zjw.ai;
 
-import cn.zjw.tools.FoodReservationTool;
+import cn.zjw.ai.repository.RedisChatMemoryStore;
+import cn.zjw.ai.tools.FoodReservationTool;
+import dev.langchain4j.mcp.McpToolProvider;
 import dev.langchain4j.memory.ChatMemory;
 import dev.langchain4j.memory.chat.MessageWindowChatMemory;
 import dev.langchain4j.rag.content.retriever.ContentRetriever;
@@ -10,7 +12,6 @@ import org.springframework.context.annotation.Configuration;
 
 import dev.langchain4j.model.chat.ChatModel;
 import dev.langchain4j.service.AiServices;
-import cn.zjw.repository.RedisChatMemoryStore;
 @Configuration
 public class AiServiceFactory {
 
@@ -24,12 +25,18 @@ public class AiServiceFactory {
 
     @Autowired
     private RedisChatMemoryStore redisChatMemoryStore;
+
+    @Autowired
+    private McpToolProvider mcpToolProvider;
+
+
     @Bean
     public AiHelperService aiHelperService() {
         AiHelperService aiHelperService = AiServices.builder(AiHelperService.class)
                 .chatModel(qwenChatModel)
                 .contentRetriever(contentRetriever)//RAG检索增强生产
                 .tools(foodReservationTool) //工具调用
+                .toolProvider(mcpToolProvider) //MCP工具调用
                 .chatMemoryProvider(memoryId -> MessageWindowChatMemory.builder()
                         .id(memoryId)//动态会话ID
                         .maxMessages(10) //保留最近10条消息

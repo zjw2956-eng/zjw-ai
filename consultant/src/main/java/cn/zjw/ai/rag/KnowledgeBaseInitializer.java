@@ -1,4 +1,4 @@
-package cn.zjw.rag;
+package cn.zjw.ai.rag;
 
 import dev.langchain4j.data.document.Document;
 import dev.langchain4j.data.document.loader.FileSystemDocumentLoader;

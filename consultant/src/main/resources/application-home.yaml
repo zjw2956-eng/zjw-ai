@@ -5,3 +5,6 @@ spring:
 
 dashscope:
   api-key: sk-69be88807ab54276b51ec1528a0b5a98
+
+bigmodel:
+  api-key: fee82c34bb93459389bf3dda2220e0cc.lC1pHq2Oj4P1sEsn

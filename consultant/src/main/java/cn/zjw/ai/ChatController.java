@@ -1,6 +1,5 @@
-package cn.zjw.controller;
+package cn.zjw.ai;
 
-import cn.zjw.ai.AiHelperService;
 import cn.zjw.common.result.CommonResult;
 import dev.langchain4j.service.Result;
 import org.springframework.beans.factory.annotation.Autowired;

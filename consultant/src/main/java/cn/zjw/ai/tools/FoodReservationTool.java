@@ -1,4 +1,4 @@
-package cn.zjw.tools;
+package cn.zjw.ai.tools;
 
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;

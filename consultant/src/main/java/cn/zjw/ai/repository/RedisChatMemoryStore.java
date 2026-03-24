@@ -1,4 +1,4 @@
-package cn.zjw.repository;
+package cn.zjw.ai.repository;
 
 import java.time.Duration;
 import java.util.Collections;

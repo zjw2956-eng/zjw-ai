@@ -1,6 +1,6 @@
 spring:
   profiles:
-    active: home
+    active: work  
   data:
     redis:
       host: localhost
@@ -58,4 +58,8 @@ server:
       force: true
   compression:
     enabled: false
+
+bigmodel:
+  api-key: ${bigmodel.api-key}
+
 
