@@ -6,6 +6,7 @@ import cn.zjw.pojo.vo.RestaurantVO;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.IService;
 import java.math.BigDecimal;
+import java.util.List;
 
 /**
  * 餐厅Service
@@ -31,4 +32,9 @@ public interface RestaurantService extends IService<Restaurant> {
      * 修改餐厅
      */
     void updateRestaurant(RestaurantDTO dto);
+
+    /**
+     * 查询高分餐厅（用于推荐）
+     */
+    List<Restaurant> getTopRatedRestaurants(String category, BigDecimal minRating, Integer limit);
 }

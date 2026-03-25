@@ -1,6 +1,7 @@
 package cn.zjw.ai;
 
 import cn.zjw.common.result.CommonResult;
+import cn.zjw.common.context.UserContext;
 import dev.langchain4j.service.Result;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -26,12 +27,14 @@ public class ChatController {
 
     /**
      * AI 对话（自动使用 RAG + 记忆）
-     * GET /ai/chat?memoryId=123&message=你好
+     * GET /ai/chat?message=你好
+     * memoryId 使用当前登录用户的 userId
      */
     @GetMapping("/chat")
-    public CommonResult<String> chat(@RequestParam Integer memoryId,
-                                    @RequestParam String message) {
-        String response = aiHelperService.chat(memoryId, message);
+    public CommonResult<String> chat(@RequestParam String message) {
+        // 从 UserContext 获取当前登录用户ID，作为 memoryId
+        Long userId = UserContext.getCurrentUserId();
+        String response = aiHelperService.chat(userId.intValue(), message);
         return CommonResult.success(response);
     }
 

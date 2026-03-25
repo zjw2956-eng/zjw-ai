@@ -147,4 +147,16 @@ public class RestaurantServiceImpl extends ServiceImpl<RestaurantMapper, Restaur
         // 4. DTO → Entity，更新到数据库
         // 5. 删除该餐厅的 Redis 缓存，防止读到旧数据
     }
+
+    @Override
+    public List<Restaurant> getTopRatedRestaurants(String category, BigDecimal minRating, Integer limit) {
+        // 查询高分餐厅（用于推荐）
+        LambdaQueryWrapper<Restaurant> wrapper=new LambdaQueryWrapper<>();
+        wrapper.eq(Restaurant::getIsDeleted,0)
+            .eq(category!=null,Restaurant::getCategory,category)
+            .ge(minRating!=null,Restaurant::getRating,minRating)
+            .orderByDesc(Restaurant::getRating)
+            .last("limit" + (limit==null?10:limit));
+        return restaurantMapper.selectList(wrapper);
+    }
 }

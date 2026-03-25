@@ -2,6 +2,7 @@ package cn.zjw.ai;
 
 import cn.zjw.ai.repository.RedisChatMemoryStore;
 import cn.zjw.ai.tools.FoodReservationTool;
+import cn.zjw.ai.tools.RecommendationTool;
 import dev.langchain4j.mcp.McpToolProvider;
 import dev.langchain4j.memory.ChatMemory;
 import dev.langchain4j.memory.chat.MessageWindowChatMemory;
@@ -17,6 +18,10 @@ public class AiServiceFactory {
 
     @Autowired
     private FoodReservationTool foodReservationTool;
+    
+    @Autowired
+    private RecommendationTool recommendationTool;
+    
     @Autowired
     private ChatModel qwenChatModel;
 
@@ -35,7 +40,7 @@ public class AiServiceFactory {
         AiHelperService aiHelperService = AiServices.builder(AiHelperService.class)
                 .chatModel(qwenChatModel)
                 .contentRetriever(contentRetriever)//RAG检索增强生产
-                .tools(foodReservationTool) //工具调用
+                .tools(foodReservationTool,recommendationTool) //工具调用
                 .toolProvider(mcpToolProvider) //MCP工具调用
                 .chatMemoryProvider(memoryId -> MessageWindowChatMemory.builder()
                         .id(memoryId)//动态会话ID

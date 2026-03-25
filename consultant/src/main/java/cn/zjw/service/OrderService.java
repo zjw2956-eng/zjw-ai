@@ -4,6 +4,9 @@ import cn.zjw.pojo.dto.OrderDTO;
 import cn.zjw.pojo.vo.OrderVO;
 import cn.zjw.pojo.entity.OrderInfo;
 import com.baomidou.mybatisplus.extension.service.IService;
+
+import java.util.Map;
+
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 /**
  * 订单Service
@@ -34,5 +37,11 @@ public interface OrderService extends IService<OrderInfo> {
      */
     void cancelOrder(String orderNo);
 
+    /**
+     * 查询用户订单历史，统计偏好菜系
+     * 
+     * @return Map<菜系, 订单数量>
+     */
+    Map<String, Integer> getUserPreferredCategories(Long userId);
     
 }

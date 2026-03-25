@@ -18,11 +18,10 @@ public class WebMvcConfig implements WebMvcConfigurer {
     @Override
     public void addInterceptors(InterceptorRegistry registry) {
         registry.addInterceptor(authInterceptor)
-                .addPathPatterns("/api/**")
+                .addPathPatterns("/api/**", "/ai/**")  // AI接口也需要JWT认证
                 .excludePathPatterns(
                     "/api/user/login",
                     "/api/user/register",
-                    "/chat",
                     "/error",              // 错误页面
                     "/swagger-ui/**",      // Swagger文档（如果用）
                     "/v3/api-docs/**"      // Swagger API

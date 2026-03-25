@@ -22,6 +22,7 @@ import cn.zjw.common.context.UserContext;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import cn.zjw.mapper.ReviewMapper;
 import cn.hutool.core.bean.BeanUtil;
+import cn.hutool.core.util.StrUtil;
 import cn.hutool.json.JSONUtil;
 import cn.zjw.common.enums.ReviewStatus;
 import cn.zjw.pojo.entity.Restaurant;
@@ -398,5 +399,31 @@ public class ReviewServiceImpl extends ServiceImpl<ReviewMapper, Review> impleme
         //   消费者: 向用户推送"您的评价已删除"通知
     }
 
+    @Override
+    public List<MyReviewVO> getUserReviewHistory(Long userId, Integer limit) {
+        LambdaQueryWrapper<Review> wrapper = new LambdaQueryWrapper<>();
+        wrapper.eq(Review::getIsDeleted, 0)
+                .eq(Review::getUserId, userId)
+                .orderByDesc(Review::getCreateTime)
+                .last("limit" + (limit == null ? 10 : limit));
+        List<Review> reviews = reviewMapper.selectList(wrapper);
+
+        List<MyReviewVO> voList = reviews.stream().map(review -> {
+            MyReviewVO vo = new MyReviewVO();
+            BeanUtil.copyProperties(review, vo);
+            // 将图片列表转换为List<String>
+            if (StrUtil.isNotBlank(review.getImages())) {
+                vo.setImages(JSONUtil.toList(review.getImages(), String.class));
+            }
+            // 将餐厅ID转换为餐厅名
+            Restaurant restaurant = restaurantMapper.selectById(review.getRestaurantId());
+            if (restaurant != null) {
+                vo.setRestaurantName(restaurant.getName());
+            }
+            return vo;
+        }).collect(Collectors.toList());
+        return voList;
+    }
+        
 
 }

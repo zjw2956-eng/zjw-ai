@@ -1,6 +1,6 @@
 spring:
   profiles:
-    active: work  
+    active: home  
   data:
     redis:
       host: localhost
@@ -33,6 +33,7 @@ langchain4j:
 
 # MyBatis-Plus配置
 mybatis-plus:
+  mapper-locations: classpath:mapper/*.xml
   configuration:
     map-underscore-to-camel-case: true
     log-impl: org.apache.ibatis.logging.stdout.StdOutImpl

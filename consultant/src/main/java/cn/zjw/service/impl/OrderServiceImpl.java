@@ -26,6 +26,7 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import java.util.stream.Collectors;
 import java.util.Set;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import lombok.extern.slf4j.Slf4j;
@@ -219,5 +220,20 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, OrderInfo> implem
         // TODO: [RabbitMQ] 取消成功后发送通知消息，告知用户订单已取消
         //   交换机: order.exchange，routing key: order.cancel
         //   消息体: { orderNo, userId }
+    }
+
+    @Override
+    public Map<String, Integer> getUserPreferredCategories(Long userId) {
+        List<Map<String,Object>> list=orderMapper.selectUserPreferredCategories(userId);
+        if(list.isEmpty()){
+            return Collections.emptyMap();
+        }
+        Map<String, Integer> result = new HashMap<>();
+        for(Map<String,Object> map:list){
+            String category=(String)map.get("category");
+            Integer count=(Integer)map.get("count");
+            result.put(category,count);
+        }
+        return result;
     }
 }

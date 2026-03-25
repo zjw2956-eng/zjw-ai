@@ -3,6 +3,11 @@ package cn.zjw.service;
 import cn.zjw.pojo.dto.ReviewDTO;
 import cn.zjw.pojo.entity.Review;
 import com.baomidou.mybatisplus.extension.service.IService;
+
+import java.util.List;
+
+import org.apache.ibatis.annotations.Param;
+
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import cn.zjw.pojo.dto.ReviewQueryDTO;
 import cn.zjw.pojo.vo.MyReviewVO;
@@ -43,4 +48,9 @@ public interface ReviewService extends IService<Review> {
      * 删除评价
      */
     void deleteReview(Long id);
+
+    /**
+     * 查询用户评价历史（用于分析偏好）
+     */
+    List<MyReviewVO> getUserReviewHistory(@Param("userId") Long userId, @Param("limit") Integer limit);
 }
