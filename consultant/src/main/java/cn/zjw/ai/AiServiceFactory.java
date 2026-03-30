@@ -36,6 +36,13 @@ public class AiServiceFactory {
 
 
     @Bean
+    public ReviewAnalysisService reviewAnalysisService() {
+        return AiServices.builder(ReviewAnalysisService.class)
+                .chatModel(qwenChatModel)
+                .build();
+    }
+
+    @Bean
     public AiHelperService aiHelperService() {
         AiHelperService aiHelperService = AiServices.builder(AiHelperService.class)
                 .chatModel(qwenChatModel)

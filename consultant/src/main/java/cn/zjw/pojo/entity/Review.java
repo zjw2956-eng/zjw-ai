@@ -23,6 +23,12 @@ public class Review {
     private String images;
     private Integer status;
 
+    //AI审核结果
+    private String aiTags;
+
+    private  String aiVerdict;   // APPROVE/REJECT/MANUAL_REVIEW
+
+
     @TableLogic
     private Integer isDeleted;
 

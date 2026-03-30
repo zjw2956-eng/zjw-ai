@@ -1,6 +1,7 @@
 package cn.zjw.service.impl;
 
 import cn.zjw.service.ReviewService;
+import lombok.extern.slf4j.Slf4j;
 import cn.zjw.pojo.entity.Review;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import org.springframework.stereotype.Service;
@@ -8,6 +9,7 @@ import org.springframework.stereotype.Service;
 import java.math.BigDecimal;
 import java.util.stream.Collectors;
 
+import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.core.RedisTemplate;
 
@@ -17,6 +19,7 @@ import cn.zjw.pojo.dto.ReviewDTO;
 import cn.zjw.common.enums.OrderStatus;
 import cn.zjw.common.exception.BusinessException;
 import cn.zjw.common.result.ResultCode;
+import cn.zjw.common.utils.SensitiveWordUtil;
 import cn.zjw.common.constant.Constants;
 import cn.zjw.common.context.UserContext;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
@@ -40,8 +43,10 @@ import cn.zjw.pojo.vo.MyReviewVO;
 import cn.zjw.pojo.vo.ReviewVO;
 import cn.zjw.pojo.entity.User;
 import cn.zjw.mapper.UserMapper;
+import cn.zjw.mq.message.ReviewAuditMessage;
 
 @Service
+@Slf4j
 public class ReviewServiceImpl extends ServiceImpl<ReviewMapper, Review> implements ReviewService {
     
 
@@ -60,7 +65,15 @@ public class ReviewServiceImpl extends ServiceImpl<ReviewMapper, Review> impleme
     @Autowired
     private RedisTemplate<String,Object> redisTemplate;
 
+    @Autowired
+    private RabbitTemplate rabbitTemplate; // 引入RabbitTemplate，用于发送消息到队列
+
+    @Autowired
+    private SensitiveWordUtil sensitiveWordUtil;
+
+    
     @Override
+    @Transactional(rollbackFor=Exception.class)
     public void createReview(ReviewDTO dto){
         //获取当前用户ID
         Long userId= UserContext.getCurrentUserId();
@@ -87,43 +100,48 @@ public class ReviewServiceImpl extends ServiceImpl<ReviewMapper, Review> impleme
         }
         //获取订单对应的餐厅ID
         Long restaurantId=orderInfo.getRestaurantId();
-
-        //构建评价实体
-        Review review=new Review();
-        BeanUtil.copyProperties(dto,review);
-        //将图片列表转换为JSON字符串
-        review.setImages(JSONUtil.toJsonStr(dto.getImages()));
-        
-        review.setUserId(userId);
-        review.setRestaurantId(restaurantId);
-
-        // TODO: [敏感词过滤] 混合方案：DFA本地快速过滤 + AI语义审核（异步）
+        // [敏感词过滤] 混合方案：DFA本地快速过滤 + AI语义审核（异步）
         //   第一层：DFA算法快速检测（本地内存，<10ms）
         //     1. 维护敏感词库（Redis Set存储，key: sensitive:words）
         //     2. 使用DFA算法匹配 dto.getContent()
         //     3. 命中明显敏感词 → 直接抛异常拒绝发表
         //     工具：Hutool的SensitiveUtil 或 自己实现DFA（面试加分）
-        //
-        //   第二层：AI语义审核（异步，不阻塞用户）
-        //     1. 未命中DFA → 设置状态为 PENDING（待审核）
-        //     2. 发送MQ消息到 review.audit.queue
-        //     3. 消费者调用通义千问API审核：
-        //        Prompt: "判断以下评价是否包含辱骂/政治敏感/色情/广告，返回JSON: {safe:true/false, reason:''}"
-        //     4. AI返回结果：
-        //        - safe=true → 自动调用 approveReview(reviewId)
-        //        - safe=false → 保持PENDING状态，等待人工复核
-        //
-        //   优势：90%正常评价快速放行，10%可疑内容AI精准判断
+        List<String> sensitiveWords=sensitiveWordUtil.check(dto.getContent());
+        log.info("DFA过滤敏感词...");
+        if(!sensitiveWords.isEmpty()){
+            throw new BusinessException(ResultCode.BAD_REQUEST.getCode(),"评价内容包含敏感词");
+        }
+        // 未命中敏感词，构建评价实体
+        log.info("未命中敏感词，构建评价实体...");
+        // 构建评价实体
+        Review review = new Review();
+        BeanUtil.copyProperties(dto, review);
+        // 将图片列表转换为JSON字符串
+        review.setImages(JSONUtil.toJsonStr(dto.getImages()));
 
-        //设置评价状态为待审核
+        review.setUserId(userId);
+        review.setRestaurantId(restaurantId);
+        // 设置评价状态为待审核
         review.setStatus(ReviewStatus.PENDING.getCode());
-
         //保存评价
+        log.info("保存评价...");
         reviewMapper.insert(review);
-        // TODO: [RabbitMQ] 通知管理员/商家有新评价待审核
-        //   交换机: review.exchange，routing key: review.pending
-        //   消息体: { reviewId: review.getId(), restaurantId }
-        //   消费者: 向管理员/商家推送"新评价待审核"通知
+        // 第二层：AI语义审核（异步，不阻塞用户）
+        // 1. 未命中DFA → 设置状态为 PENDING（待审核）
+        // 2. 发送MQ消息到 review.audit.queue
+        // 3. 消费者调用通义千问API审核：
+        // Prompt: "判断以下评价是否包含辱骂/政治敏感/色情/广告，返回JSON: {safe:true/false, reason:''}"
+        // 4. AI返回结果：
+        // - safe=true → 自动调用 approveReview(reviewId)
+        // - safe=false → 保持PENDING状态，等待人工复核
+        log.info("发送MQ消息到 review.audit.queue...");
+        // 优势：90%正常评价快速放行，10%可疑内容AI精准判断
+        ReviewAuditMessage message=new ReviewAuditMessage();
+        message.setReviewId(review.getId());
+        message.setContent(review.getContent());
+        message.setRating(review.getRating());
+        // 发送MQ消息到 review.audit.queue
+        rabbitTemplate.convertAndSend("review.exchange", "review.audit", message);
     }
 
     @Override

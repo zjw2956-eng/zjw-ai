@@ -1,6 +1,5 @@
 #CUSTOM
-application-home.yaml
-application-work.yaml
+application-dev.yaml
 
 
 # Maven 构建输出
