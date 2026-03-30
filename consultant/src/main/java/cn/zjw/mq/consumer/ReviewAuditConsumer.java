@@ -5,8 +5,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import cn.hutool.json.JSONUtil;
-import cn.zjw.ai.ReviewAnalysisService;
 import cn.zjw.ai.model.ReviewAnalysisResult;
+import cn.zjw.ai.service.ReviewAnalysisService;
 import cn.zjw.mapper.ReviewMapper;
 import cn.zjw.mq.message.ReviewAuditMessage;
 import cn.zjw.pojo.entity.Review;

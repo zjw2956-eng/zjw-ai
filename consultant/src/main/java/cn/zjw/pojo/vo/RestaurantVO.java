@@ -23,4 +23,6 @@ public class RestaurantVO {
     private String description;
     private Integer status;
     private List<DishVO> dishes; // 菜品列表
+    
+    private String aiSummary;  // AI 生成的口碑摘要（JSON 字符串）
 }

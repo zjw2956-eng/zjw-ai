@@ -1,6 +1,7 @@
 package cn.zjw.ai;
 
 import cn.zjw.common.result.CommonResult;
+import cn.zjw.ai.service.AiHelperService;
 import cn.zjw.common.context.UserContext;
 import dev.langchain4j.service.Result;
 import org.springframework.beans.factory.annotation.Autowired;

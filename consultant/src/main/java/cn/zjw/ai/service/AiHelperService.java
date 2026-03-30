@@ -1,4 +1,4 @@
-package cn.zjw.ai;
+package cn.zjw.ai.service;
 
 import dev.langchain4j.service.*;
 import dev.langchain4j.service.spring.AiService;

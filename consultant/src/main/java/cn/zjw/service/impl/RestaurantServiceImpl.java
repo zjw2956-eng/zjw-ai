@@ -2,24 +2,33 @@ package cn.zjw.service.impl;
 
 import cn.hutool.core.bean.BeanUtil;
 import cn.hutool.json.JSONUtil;
+import cn.zjw.ai.model.RestaurantSummary;
+import cn.zjw.ai.service.RestaurantSummaryService;
 import cn.zjw.common.constant.Constants;
 import cn.zjw.common.enums.DishStatus;
+import cn.zjw.common.enums.ReviewStatus;
 import cn.zjw.common.exception.BusinessException;
 import cn.zjw.common.result.CommonResult;
 import cn.zjw.common.result.ResultCode;
 import cn.zjw.mapper.DishMapper;
 import cn.zjw.mapper.RestaurantMapper;
+import cn.zjw.mapper.ReviewMapper;
 import cn.zjw.pojo.dto.RestaurantDTO;
 import cn.zjw.pojo.entity.Dish;
 import cn.zjw.pojo.entity.Restaurant;
+import cn.zjw.pojo.entity.Review;
 import cn.zjw.pojo.vo.DishVO;
 import cn.zjw.pojo.vo.RestaurantVO;
 import cn.zjw.service.RestaurantService;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
+import com.fasterxml.jackson.databind.ObjectMapper;
+
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.Lazy;
+import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
@@ -43,6 +52,20 @@ public class RestaurantServiceImpl extends ServiceImpl<RestaurantMapper, Restaur
 
     @Autowired
     private DishMapper dishMapper;
+
+    @Lazy // 延迟加载，避免循环依赖
+    @Autowired
+    private RestaurantSummaryService restaurantSummaryService;
+
+    @Autowired
+    private RedisTemplate<String, Object> redisTemplate;
+    
+    @Autowired
+    private ObjectMapper objectMapper;
+
+    @Autowired
+    private ReviewMapper reviewMapper;
+
 
     @Override
     public Page<RestaurantVO> listRestaurants(Integer current, Integer size,
@@ -117,16 +140,60 @@ public class RestaurantServiceImpl extends ServiceImpl<RestaurantMapper, Restaur
 
         List<DishVO> dishVOList=dishList.stream().map(d->BeanUtil.copyProperties(d, DishVO.class)).collect(Collectors.toList());
             
+        //AI生成餐厅评价摘要
+        String aiSummary = getOrderGenerateSummary(id);
         // Entity → VO，写入缓存
         RestaurantVO restaurantVO = BeanUtil.copyProperties(restaurant, RestaurantVO.class);
         //设置菜品列表
         restaurantVO.setDishes(dishVOList);
+        //设置评价摘要
+        restaurantVO.setAiSummary(aiSummary);
         // TODO: [缓存一致性] 当菜品状态变更（上架/下架/新增/删除）时，需删除餐厅缓存
         //   涉及接口：DishService.addDish()、DishService.updateDishStatus() 等
         //   删除方式：stringRedisTemplate.delete(Constants.REDIS_RESTAURANT_KEY + restaurantId)
         stringRedisTemplate.opsForValue().set(cacheKey, JSONUtil.toJsonStr(restaurantVO),
                 Constants.REDIS_EXPIRE_TIME, TimeUnit.SECONDS);
         return restaurantVO;
+    }
+
+    /**
+     * 获取或生成餐厅摘要（带缓存）
+     */
+    private String getOrderGenerateSummary(Long restaurantId) {
+        String cacheKey = Constants.REDIS_RESTAURANT_SUMMARY_KEY + restaurantId;
+        String cachedSummary = (String) redisTemplate.opsForValue().get(cacheKey);
+        if (cachedSummary != null) {
+            return cachedSummary;
+        }
+        // 缓存不存在，查询最近 20 条已通过审核的评价
+        LambdaQueryWrapper<Review> reviewWrapper = new  LambdaQueryWrapper<>();
+        reviewWrapper.eq(Review::getRestaurantId,restaurantId)
+            .eq(Review::getIsDeleted,0)
+            .eq(Review::getStatus,ReviewStatus.APPROVED.getCode())
+            .orderByDesc(Review::getCreateTime)
+            .last("limit 20");
+        List<Review> reviews=reviewMapper.selectList(reviewWrapper);
+        if(reviews.size()<3){
+            return null;
+        }
+        //把List<Review>转换为String
+        String reviewsText= reviews.stream()
+            .map(r->"评分:"+ r.getRating() + "星，内容："+ r.getContent())
+            .collect(Collectors.joining("\n"));
+        try {
+            log.info("准备调用 AI 生成摘要，评价文本: {}", reviewsText);
+            //调用AI服务生成餐厅摘要，返回结构化对象RestaurantSummary
+            RestaurantSummary restaurantSummary=restaurantSummaryService.generateSummary(reviewsText);
+            log.info("AI 返回的摘要对象: {}", restaurantSummary);
+            // 改用 Jackson 序列化
+            String summaryStr = objectMapper.writeValueAsString(restaurantSummary);
+            log.info("转换后的 JSON: {}", summaryStr);
+            redisTemplate.opsForValue().set(cacheKey, summaryStr, Constants.REDIS_EXPIRE_TIME, TimeUnit.SECONDS);  
+            return summaryStr;
+        } catch (Exception e) {
+            log.error("AI 生成摘要失败: restaurantId={}", restaurantId, e);
+            return null;  // 降级处理，返回 null
+        }
     }
 
     @Override

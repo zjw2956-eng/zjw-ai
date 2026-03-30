@@ -3,6 +3,8 @@ package cn.zjw.common.constant;
 public class Constants {
 
     //Redis键值对
+    //餐厅摘要缓存键
+    public static final String REDIS_RESTAURANT_SUMMARY_KEY = "restaurant:ai:summary:";
     //评价详情缓存键
     public static final String REDIS_REVIEW_DETAIL = "review:detail:";
     //订单详情缓存键

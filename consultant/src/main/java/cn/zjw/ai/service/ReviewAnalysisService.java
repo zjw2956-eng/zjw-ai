@@ -1,4 +1,4 @@
-package cn.zjw.ai;
+package cn.zjw.ai.service;
 
 import cn.zjw.ai.model.ReviewAnalysisResult;
 import dev.langchain4j.service.SystemMessage;

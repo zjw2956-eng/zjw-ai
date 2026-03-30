@@ -1,6 +1,9 @@
 package cn.zjw.ai;
 
 import cn.zjw.ai.repository.RedisChatMemoryStore;
+import cn.zjw.ai.service.AiHelperService;
+import cn.zjw.ai.service.RestaurantSummaryService;
+import cn.zjw.ai.service.ReviewAnalysisService;
 import cn.zjw.ai.tools.FoodReservationTool;
 import cn.zjw.ai.tools.RecommendationTool;
 import dev.langchain4j.mcp.McpToolProvider;
@@ -34,6 +37,13 @@ public class AiServiceFactory {
     @Autowired
     private McpToolProvider mcpToolProvider;
 
+
+    @Bean
+    public RestaurantSummaryService restaurantSummaryService() {
+        return AiServices.builder(RestaurantSummaryService.class)
+                .chatModel(qwenChatModel)
+                .build();
+    }
 
     @Bean
     public ReviewAnalysisService reviewAnalysisService() {
