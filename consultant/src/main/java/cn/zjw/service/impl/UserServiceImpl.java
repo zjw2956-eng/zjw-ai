@@ -2,6 +2,7 @@ package cn.zjw.service.impl;
 
 import cn.zjw.common.constant.Constants;
 import cn.zjw.common.exception.BusinessException;
+import cn.zjw.common.result.ResultCode;
 import cn.zjw.common.utils.JwtUtil;
 import cn.zjw.mapper.UserMapper;
 import cn.zjw.pojo.dto.UserLoginDTO;
@@ -41,13 +42,13 @@ public class UserServiceImpl implements UserService {
         LambdaQueryWrapper<User> wrapper = new LambdaQueryWrapper<>();
         wrapper.eq(User::getUsername, dto.getUsername());
         if (userMapper.selectCount(wrapper) > 0) {
-            throw new BusinessException(400, "用户名已存在");
+            throw new BusinessException(ResultCode.BAD_REQUEST, "用户名已存在");
         }
 
         LambdaQueryWrapper<User> phoneWrapper = new LambdaQueryWrapper<>();
         phoneWrapper.eq(User::getPhone, dto.getPhone());
         if (userMapper.selectCount(phoneWrapper) > 0) {
-            throw new BusinessException(400, "手机号已注册");
+            throw new BusinessException(ResultCode.BAD_REQUEST, "手机号已注册");
         }
 
         String encryptedPassword = BCrypt.hashpw(dto.getPassword(), BCrypt.gensalt());
@@ -65,10 +66,10 @@ public class UserServiceImpl implements UserService {
         wrapper.eq(User::getUsername, dto.getUsername());
         User user = userMapper.selectOne(wrapper);
         if (user == null) {
-            throw new BusinessException(400, "用户名不存在");
+            throw new BusinessException(ResultCode.BAD_REQUEST, "用户名不存在");
         }
         if (!BCrypt.checkpw(dto.getPassword(), user.getPassword())) {
-            throw new BusinessException(400, "密码错误");
+            throw new BusinessException(ResultCode.BAD_REQUEST, "密码错误");
         }
         String token = jwtUtil.generateToken(user.getId());
         stringRedisTemplate.opsForValue().set(
@@ -83,7 +84,7 @@ public class UserServiceImpl implements UserService {
     public UserVO getUserInfo(Long userId) {
         User user = userMapper.selectById(userId);
         if (user == null) {
-            throw new BusinessException(404, "用户不存在");
+            throw new BusinessException(ResultCode.NOT_FOUND, "用户不存在");
         }
         UserVO userVO = new UserVO();
         userVO.setId(user.getId());

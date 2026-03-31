@@ -75,12 +75,6 @@ public class ReviewController {
      */
     @GetMapping("/restaurant")
     public CommonResult<Page<ReviewVO>> listByRestaurantId(@Valid ReviewQueryDTO dto){
-        if(dto.getCurrent() < 1){
-            return CommonResult.error(ResultCode.BAD_REQUEST,"当前页码必须为正整数");
-        }
-        if(dto.getPageSize() < 1 || dto.getPageSize() > 100){
-            return CommonResult.error(ResultCode.BAD_REQUEST,"查询页数在1-100之间");
-        }
         Page<ReviewVO> result=reviewService.listByRestaurantId(dto);
         return CommonResult.success(ResultCode.SUCCESS, "查询餐厅评价列表成功",result);
     }

@@ -56,14 +56,14 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, OrderInfo> implem
     public void createOrder(OrderDTO dto){
         Restaurant restaurant = restaurantMapper.selectById(dto.getRestaurantId());
         if (restaurant == null) {
-            throw new BusinessException(ResultCode.NOT_FOUND.getCode(),"餐厅不存在");
+            throw new BusinessException(ResultCode.NOT_FOUND,"餐厅不存在");
         }
         // 检查餐厅是否正常
         if (restaurant.getStatus() != Constants.RESTAURANT_STATUS_NORMAL) {
-            throw new BusinessException(ResultCode.BAD_REQUEST.getCode(),"餐厅休息中");
+            throw new BusinessException(ResultCode.BAD_REQUEST,"餐厅休息中");
         }
         if(!PhoneUtil.isMobile(dto.getContactPhone())){
-            throw new BusinessException(ResultCode.BAD_REQUEST.getCode(),"联系电话格式错误");
+            throw new BusinessException(ResultCode.BAD_REQUEST,"联系电话格式错误");
         }
         
         OrderInfo orderInfo=new OrderInfo();
@@ -173,7 +173,7 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, OrderInfo> implem
             return null;
         }
         if (!orderInfo.getUserId().equals(userId)) {
-            throw new BusinessException(ResultCode.FORBIDDEN.getCode(),"订单不属于当前用户，无权查看");
+            throw new BusinessException(ResultCode.FORBIDDEN,"订单不属于当前用户，无权查看");
         }
         OrderVO orderVO=new OrderVO();
         BeanUtil.copyProperties(orderInfo, orderVO);
@@ -199,15 +199,15 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, OrderInfo> implem
         OrderInfo orderInfo=orderMapper.selectOne(wrapper);
         //如果订单不存在，返回错误
         if(orderInfo==null){
-            throw new BusinessException(ResultCode.NOT_FOUND.getCode(),"订单不存在");
+            throw new BusinessException(ResultCode.NOT_FOUND,"订单不存在");
         }
         //校验是否为当前用户
         if (!userId.equals(orderInfo.getUserId())) {
-            throw new BusinessException(ResultCode.FORBIDDEN.getCode(),"订单不属于当前用户，无权取消");
+            throw new BusinessException(ResultCode.FORBIDDEN,"订单不属于当前用户，无权取消");
         }
         //校验订单状态
         if (!orderInfo.getStatus().equals(OrderStatus.PENDING.getCode())) {
-            throw new BusinessException(ResultCode.BAD_REQUEST.getCode(),"当前订单状态不支持取消");
+            throw new BusinessException(ResultCode.BAD_REQUEST,"当前订单状态不支持取消");
         }
         //更新订单状态
         orderInfo.setStatus(OrderStatus.CANCELLED.getCode());

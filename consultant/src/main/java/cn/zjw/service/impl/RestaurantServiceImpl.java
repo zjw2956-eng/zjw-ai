@@ -128,7 +128,7 @@ public class RestaurantServiceImpl extends ServiceImpl<RestaurantMapper, Restaur
         // 缓存未命中，查数据库
         Restaurant restaurant = restaurantMapper.selectById(id);
         if (restaurant == null) {
-            throw new BusinessException(ResultCode.NOT_FOUND.getCode(), "餐厅不存在");
+            throw new BusinessException(ResultCode.NOT_FOUND,"餐厅不存在");
         }
         //查询菜品
         LambdaQueryWrapper<Dish> wrapper = new LambdaQueryWrapper<Dish>()

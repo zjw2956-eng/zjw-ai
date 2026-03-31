@@ -2,8 +2,15 @@ package cn.zjw.common.constant;
 
 public class Constants {
 
-    //Redis键值对
-    //餐厅摘要缓存键
+    //Redis键值对常量
+    //消息队列生产者确认机制常量
+    public static final String RABBITMQ_CORRELATION_MSG_ID = "mq:msgId:";
+    //最大重试次数
+    public static final Integer MAX_RETRY_COUNT = 3;
+    //重试时间间隔，单位秒
+    public static final Long MQ_RETRY_INTERVAL_TIME = 5L * 60L;
+
+       //餐厅摘要缓存键
     public static final String REDIS_RESTAURANT_SUMMARY_KEY = "restaurant:ai:summary:";
     //评价详情缓存键
     public static final String REDIS_REVIEW_DETAIL = "review:detail:";

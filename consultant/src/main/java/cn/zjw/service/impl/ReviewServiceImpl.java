@@ -9,8 +9,10 @@ import org.springframework.stereotype.Service;
 import java.math.BigDecimal;
 import java.util.stream.Collectors;
 
+import org.springframework.amqp.rabbit.connection.CorrelationData;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.redis.core.RedisTemplate;
 
 import cn.zjw.mapper.OrderMapper;
@@ -25,6 +27,7 @@ import cn.zjw.common.context.UserContext;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import cn.zjw.mapper.ReviewMapper;
 import cn.hutool.core.bean.BeanUtil;
+import cn.hutool.core.util.IdUtil;
 import cn.hutool.core.util.StrUtil;
 import cn.hutool.json.JSONUtil;
 import cn.zjw.common.enums.ReviewStatus;
@@ -33,6 +36,7 @@ import cn.zjw.mapper.RestaurantMapper;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
@@ -44,6 +48,7 @@ import cn.zjw.pojo.vo.ReviewVO;
 import cn.zjw.pojo.entity.User;
 import cn.zjw.mapper.UserMapper;
 import cn.zjw.mq.message.ReviewAuditMessage;
+import cn.zjw.mq.event.ReviewCreatedEvent;
 
 @Service
 @Slf4j
@@ -71,6 +76,9 @@ public class ReviewServiceImpl extends ServiceImpl<ReviewMapper, Review> impleme
     @Autowired
     private SensitiveWordUtil sensitiveWordUtil;
 
+    @Autowired
+    private ApplicationEventPublisher eventPublisher;
+
     
     @Override
     @Transactional(rollbackFor=Exception.class)
@@ -81,13 +89,13 @@ public class ReviewServiceImpl extends ServiceImpl<ReviewMapper, Review> impleme
         //获取该订单对应的餐厅ID
         OrderInfo orderInfo=orderMapper.selectById(dto.getOrderId());
         if ((orderInfo == null) || (orderInfo.getIsDeleted()== 1)) {
-            throw new BusinessException(ResultCode.NOT_FOUND.getCode(),"订单不存在");
+            throw new BusinessException(ResultCode.NOT_FOUND,"订单不存在");
         }
         if(!orderInfo.getStatus().equals(OrderStatus.COMPLETED.getCode())){
-            throw new BusinessException(ResultCode.BAD_REQUEST.getCode(),"订单状态不支持评价");
+            throw new BusinessException(ResultCode.BAD_REQUEST,"订单状态不支持评价");
         }
         if(!orderInfo.getUserId().equals(userId)){
-            throw new BusinessException(ResultCode.FORBIDDEN.getCode(),"这不是你的订单，无评价权限");
+            throw new BusinessException(ResultCode.FORBIDDEN,"这不是你的订单，无评价权限");
         }
         //校验是否已评价，一个订单只能评价一次
         LambdaQueryWrapper<Review> wrapper=new LambdaQueryWrapper<>();
@@ -96,7 +104,7 @@ public class ReviewServiceImpl extends ServiceImpl<ReviewMapper, Review> impleme
         wrapper.eq(Review::getIsDeleted, 0);
         Review existReview=reviewMapper.selectOne(wrapper);
         if(existReview != null){
-            throw new BusinessException(ResultCode.BAD_REQUEST.getCode(),"该订单已评价，不能重复评价");
+            throw new BusinessException(ResultCode.BAD_REQUEST,"该订单已评价，不能重复评价");
         }
         //获取订单对应的餐厅ID
         Long restaurantId=orderInfo.getRestaurantId();
@@ -109,7 +117,7 @@ public class ReviewServiceImpl extends ServiceImpl<ReviewMapper, Review> impleme
         List<String> sensitiveWords=sensitiveWordUtil.check(dto.getContent());
         log.info("DFA过滤敏感词...");
         if(!sensitiveWords.isEmpty()){
-            throw new BusinessException(ResultCode.BAD_REQUEST.getCode(),"评价内容包含敏感词");
+            throw new BusinessException(ResultCode.BAD_REQUEST,"评价内容包含敏感词");
         }
         // 未命中敏感词，构建评价实体
         log.info("未命中敏感词，构建评价实体...");
@@ -134,14 +142,34 @@ public class ReviewServiceImpl extends ServiceImpl<ReviewMapper, Review> impleme
         // 4. AI返回结果：
         // - safe=true → 自动调用 approveReview(reviewId)
         // - safe=false → 保持PENDING状态，等待人工复核
-        log.info("发送MQ消息到 review.audit.queue...");
+        log.info("构造消息体......");
         // 优势：90%正常评价快速放行，10%可疑内容AI精准判断
         ReviewAuditMessage message=new ReviewAuditMessage();
         message.setReviewId(review.getId());
         message.setContent(review.getContent());
         message.setRating(review.getRating());
-        // 发送MQ消息到 review.audit.queue
-        rabbitTemplate.convertAndSend("review.exchange", "review.audit", message);
+
+        //构造一个CorrelationData,用于消息确认
+        String msgId= IdUtil.simpleUUID();
+        //消息体序列化，把消息按照随机UUID生产的msgId存到redis里面
+        String msgJson=JSONUtil.toJsonStr(message);
+        // 3. 发送前把消息存入Redis（附带初始重试次数 0）
+        // 用Redis Hash结构存储消息体
+        Map<String,Object> msgMap=new HashMap<>();
+        msgMap.put("message", msgJson);
+        msgMap.put("retryCount", 0L);
+        redisTemplate.opsForHash().putAll(
+                Constants.RABBITMQ_CORRELATION_MSG_ID+msgId,
+                msgMap
+        );
+        //设置过期时间
+        redisTemplate.expire(Constants.RABBITMQ_CORRELATION_MSG_ID+msgId, Constants.MQ_RETRY_INTERVAL_TIME, TimeUnit.SECONDS);
+
+        log.info("消息已存入Redis，msgId: {}", msgId);
+
+        //不直接发MQ而是发布事件
+        eventPublisher.publishEvent(new ReviewCreatedEvent(message,msgId));
+        log.info("已发布评价创建事件，等待事务提交后发送MQ");
     }
 
     @Override
@@ -150,10 +178,10 @@ public class ReviewServiceImpl extends ServiceImpl<ReviewMapper, Review> impleme
         //查询评价是否存在
         Review review=reviewMapper.selectById(id);
         if (review == null) {
-            throw new BusinessException(ResultCode.NOT_FOUND.getCode(),"评价不存在");
+            throw new BusinessException(ResultCode.NOT_FOUND,"评价不存在");
         }
         if(!review.getStatus().equals(ReviewStatus.PENDING.getCode())){
-            throw new BusinessException(ResultCode.BAD_REQUEST.getCode(),"评价状态不支持审核");
+            throw new BusinessException(ResultCode.BAD_REQUEST,"评价状态不支持审核");
         }
         //更新评价状态
         review.setStatus(ReviewStatus.APPROVED.getCode());
@@ -181,10 +209,10 @@ public class ReviewServiceImpl extends ServiceImpl<ReviewMapper, Review> impleme
         //查询评价是否存在
         Review review=reviewMapper.selectById(id);
         if (review == null) {
-            throw new BusinessException(ResultCode.NOT_FOUND.getCode(),"评价不存在");
+            throw new BusinessException(ResultCode.NOT_FOUND,"评价不存在");
         }
         if(!review.getStatus().equals(ReviewStatus.PENDING.getCode())){
-            throw new BusinessException(ResultCode.BAD_REQUEST.getCode(),"评价状态不支持审核");
+            throw new BusinessException(ResultCode.BAD_REQUEST,"评价状态不支持审核");
         }
         //更新评价状态
         review.setStatus(ReviewStatus.REJECTED.getCode());
@@ -219,7 +247,7 @@ public class ReviewServiceImpl extends ServiceImpl<ReviewMapper, Review> impleme
         }
         Restaurant restaurant=restaurantMapper.selectById(restaurantId);
         if (restaurant == null) {
-            throw new BusinessException(ResultCode.NOT_FOUND.getCode(),"餐厅不存在");
+            throw new BusinessException(ResultCode.NOT_FOUND,"餐厅不存在");
         }
         restaurant.setRating(avgRating);
         restaurantMapper.updateById(restaurant);
@@ -359,21 +387,21 @@ public class ReviewServiceImpl extends ServiceImpl<ReviewMapper, Review> impleme
         //查询评价是否存在
         Review review=reviewMapper.selectById(id);
         if(review==null){
-            throw new BusinessException(ResultCode.NOT_FOUND.getCode(),"评价不存在");
+            throw new BusinessException(ResultCode.NOT_FOUND,"评价不存在");
         }
         //权限校验
         if(!review.getUserId().equals(userId)){
-            throw new BusinessException(ResultCode.FORBIDDEN.getCode(),"无权限查看该评价");
+            throw new BusinessException(ResultCode.FORBIDDEN,"无权限查看该评价");
         }
         //查询餐厅名
         Restaurant restaurant=restaurantMapper.selectById(review.getRestaurantId());
         if(restaurant==null){
-            throw new BusinessException(ResultCode.NOT_FOUND.getCode(),"餐厅不存在");
+            throw new BusinessException(ResultCode.NOT_FOUND,"餐厅不存在");
         }
         //查询订单号
         OrderInfo orderInfo=orderMapper.selectById(review.getOrderId());
         if(orderInfo==null){
-            throw new BusinessException(ResultCode.NOT_FOUND.getCode(),"订单不存在");
+            throw new BusinessException(ResultCode.NOT_FOUND,"订单不存在");
         }
         String restaurantName=restaurant.getName();
         String orderNo=orderInfo.getOrderNo();
@@ -396,10 +424,10 @@ public class ReviewServiceImpl extends ServiceImpl<ReviewMapper, Review> impleme
     public void deleteReview(Long id) {
         Review review=reviewMapper.selectById(id);
         if(review==null){
-            throw new BusinessException(ResultCode.NOT_FOUND.getCode(),"评价不存在");
+            throw new BusinessException(ResultCode.NOT_FOUND,"评价不存在");
         }
         if(!review.getUserId().equals(UserContext.getCurrentUserId())){
-            throw new BusinessException(ResultCode.FORBIDDEN.getCode(),"无权限删除该评价");
+            throw new BusinessException(ResultCode.FORBIDDEN,"无权限删除该评价");
         }
         //删除评价,调用MybatisPlus的逻辑删除方法
         reviewMapper.deleteById(id);
@@ -423,7 +451,7 @@ public class ReviewServiceImpl extends ServiceImpl<ReviewMapper, Review> impleme
         wrapper.eq(Review::getIsDeleted, 0)
                 .eq(Review::getUserId, userId)
                 .orderByDesc(Review::getCreateTime)
-                .last("limit" + (limit == null ? 10 : limit));
+                .last("LIMIT " + (limit == null ? 10 : limit));
         List<Review> reviews = reviewMapper.selectList(wrapper);
 
         List<MyReviewVO> voList = reviews.stream().map(review -> {

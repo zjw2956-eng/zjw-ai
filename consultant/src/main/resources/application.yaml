@@ -39,6 +39,7 @@ langchain4j:
         api-key: ${dashscope.api-key}
         model-name: qwen-plus
         temperature: 0.7
+        timeout: 30s
       streaming-chat-model:
           api-key: ${dashscope.api-key}
           model-name: qwen-plus
