@@ -141,7 +141,7 @@ public class RestaurantServiceImpl extends ServiceImpl<RestaurantMapper, Restaur
         List<DishVO> dishVOList=dishList.stream().map(d->BeanUtil.copyProperties(d, DishVO.class)).collect(Collectors.toList());
             
         //AI生成餐厅评价摘要
-        String aiSummary = getOrderGenerateSummary(id);
+        String aiSummary = getSummary(id);
         // Entity → VO，写入缓存
         RestaurantVO restaurantVO = BeanUtil.copyProperties(restaurant, RestaurantVO.class);
         //设置菜品列表
@@ -159,7 +159,7 @@ public class RestaurantServiceImpl extends ServiceImpl<RestaurantMapper, Restaur
     /**
      * 获取或生成餐厅摘要（带缓存）
      */
-    private String getOrderGenerateSummary(Long restaurantId) {
+    private String getSummary(Long restaurantId) {
         String cacheKey = Constants.REDIS_RESTAURANT_SUMMARY_KEY + restaurantId;
         String cachedSummary = (String) redisTemplate.opsForValue().get(cacheKey);
         if (cachedSummary != null) {

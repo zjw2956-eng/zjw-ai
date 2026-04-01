@@ -12,8 +12,12 @@ import cn.hutool.json.JSONUtil;
 import org.springframework.stereotype.Service;
 import cn.zjw.common.constant.Constants;
 import cn.zjw.pojo.dto.OrderDTO;
+
+import org.redisson.api.RedissonClient;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.serializer.StringRedisSerializer;
+
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.concurrent.TimeUnit;
@@ -32,6 +36,8 @@ import java.util.Map;
 import lombok.extern.slf4j.Slf4j;
 import cn.zjw.common.exception.BusinessException;
 import cn.zjw.common.result.ResultCode;
+import cn.zjw.common.utils.OrderNoGenerator;
+
 import org.springframework.transaction.annotation.Transactional;
 
 /**
@@ -46,7 +52,11 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, OrderInfo> implem
     private RestaurantMapper restaurantMapper;
     @Autowired
     private StringRedisTemplate redisTemplate;
-    
+    @Autowired
+    private RedissonClient redissonClient;
+
+    @Autowired
+    private StringRedisTemplate stringRedisTemplate;
     // TODO: [RabbitMQ] 集成后需加 @Transactional，配合发布者确认机制保证消息可靠性
     // TODO: [幂等性] 在 orderMapper.insert() 前加幂等校验，防止用户重复提交
     //   方案：Redis SETNX 检查 key: idempotent:order:{userId}:{idempotentToken}
@@ -71,10 +81,8 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, OrderInfo> implem
         Long userId=UserContext.getCurrentUserId();
         orderInfo.setUserId(userId);  // ✅ 设置用户ID
         //生成订单号
-        String orderNo = Constants.ORDER_ID_PREFIX 
-            + LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMddHHmmss"))
-            + userId
-            + RandomUtil.randomNumbers(4);
+        OrderNoGenerator orderNoGenerator=new OrderNoGenerator();
+        String orderNo = orderNoGenerator.generateOrderNo(redissonClient,stringRedisTemplate);
         orderInfo.setOrderNo(orderNo);
         //设置状态为待确认
         orderInfo.setStatus(OrderStatus.PENDING.getCode());

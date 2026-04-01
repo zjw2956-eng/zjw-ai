@@ -1,13 +1,13 @@
 package cn.zjw.mq.consumer;
 
 import org.springframework.amqp.rabbit.annotation.RabbitListener;
-import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import cn.hutool.json.JSONUtil;
 import cn.zjw.ai.model.ReviewAnalysisResult;
 import cn.zjw.ai.service.ReviewAnalysisService;
+
 import cn.zjw.common.enums.ReviewStatus;
 import cn.zjw.mapper.ReviewMapper;
 import cn.zjw.mq.message.ReviewAuditMessage;
@@ -29,9 +29,6 @@ public class ReviewAuditConsumer {
     public void handleReviewAudit(ReviewAuditMessage message){
         try {
             log.info("AI收到评价审核消息: {}", message);
-            // ↓ 测试用，模拟AI审核失败，测完删掉
-            if(true){throw new RuntimeException("模拟AI审核失败-测试死信队列");}
-            
             //调用AI审核
             //返回结果ReviewAnalysisResult对象
             ReviewAnalysisResult result = reviewAnalysisService.analyzeReview(
@@ -52,6 +49,7 @@ public class ReviewAuditConsumer {
             }
             reviewMapper.updateById(review);
             log.info("AI审核评价结果: {}", review);
+            log.info("消费者确认.....");
         } catch (Exception e) {
             log.error("AI审核失败，reviewId={}: {}", message.getReviewId(),
                     e.getMessage(), e);

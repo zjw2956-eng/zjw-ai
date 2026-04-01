@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 这是一个基于 **Spring Boot 3.5.x** 和 **LangChain4j** 的 **智能美食推荐与餐厅管理系统**。使用阿里云 **通义千问（DashScope）** 作为大语言模型与嵌入模型，结合 **RAG**、本地 **Function Calling**（`@Tool`）以及 **智谱 MCP 联网搜索**（可选），提供智能美食咨询、餐厅预订、用户管理、订单管理等能力。
 
-**技术栈**: Spring Boot 3.5.0 + LangChain4j 1.1.x + MyBatis-Plus 3.5.x + 通义千问（DashScope Starter）+ Redis + MySQL + Hutool；前端为 `static/index.html`（Vue 3 单页）。
+**技术栈**: Spring Boot 3.5.0 + LangChain4j 1.1.x + MyBatis-Plus 3.5.x + 通义千问（DashScope Starter）+ Redis + MySQL + RabbitMQ + Hutool；前端为 `static/index.html`（Vue 3 单页）。
 
 **项目结构**: 应用代码位于 `consultant/` 子目录下；数据库初始化脚本位于 `consultant/sql/`（若仓库另有顶层 `sql/`，以实际路径为准）。
 
@@ -49,8 +49,14 @@ java -jar target/consultant-0.0.1-SNAPSHOT.jar
    - 向量索引：`food-knowledge-index`（RAG）
    - 知识库一次性初始化标记：`knowledge:initialized`
    - JWT：`user:token:{userId}`（见 `Constants`）
+   - RabbitMQ 消息重试缓存：`rabbitmq:correlation:msgId:{msgId}`
 
-4. **API 密钥**
+4. **RabbitMQ**（默认 **localhost:5672**）
+   - 交换机：`review.exchange`（评价审核）、`review.dlx.exchange`（死信）
+   - 队列：`review.audit.queue`（审核队列）、`review.audit.dlx.queue`（死信队列）
+   - 用户名/密码见 `application.yaml`
+
+5. **API 密钥**
    - **DashScope**：`dashscope.api-key`，用于 `qwen-plus`、`text-embedding-v4` 等
    - **智谱 BigModel**（启用 MCP 搜索时）：`bigmodel.api-key`，用于 `https://open.bigmodel.cn/api/mcp/web_search/sse`
 
@@ -76,6 +82,13 @@ java -jar target/consultant-0.0.1-SNAPSHOT.jar
 │  - AiServiceFactory：AiServices.builder 注册 AiHelperService │
 │  - RagConfig / KnowledgeBaseInitializer                      │
 │  - McpConfig（McpToolProvider → 智谱 web_search）             │
+│  - ReviewAnalysisService（AI 评价审核）                      │
+└─────────────────────────────────────────────────────────────┘
+                              ↓
+┌─────────────────────────────────────────────────────────────┐
+│ 消息队列层（RabbitMQ）                                        │
+│  - ReviewAuditConsumer（消费评价审核消息）                    │
+│  - RabbitMQConfig（消息确认 + 重试 + 死信队列）               │
 └─────────────────────────────────────────────────────────────┘
                               ↓
 ┌─────────────────────────────────────────────────────────────┐
@@ -87,7 +100,7 @@ java -jar target/consultant-0.0.1-SNAPSHOT.jar
 ┌─────────────────────────────────────────────────────────────┐
 │ 数据存储                                                     │
 │  - MySQL：业务数据                                           │
-│  - Redis：记忆 + 向量 + Token + 知识库初始化标记             │
+│  - Redis：记忆 + 向量 + Token + 知识库初始化标记 + MQ重试    │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -154,6 +167,26 @@ LangChain4j AiServices 代理
 - 映射：**`/ai/chat`**（类上 **`@RequestMapping("/ai")`**）。
 - 返回 **`CommonResult<String>`**，**非流式**（非 `Flux` / SSE）。
 
+### 7. AI 评价审核：`ReviewAnalysisService` + `ReviewAuditConsumer`
+
+- **业务流程**：
+  1. 用户提交评价 → `ReviewServiceImpl.addReview()` 保存评价（状态：待审核）
+  2. 发送消息到 RabbitMQ（`review.exchange` → `review.audit.queue`）
+  3. `ReviewAuditConsumer.handleReviewAudit()` 消费消息，调用 AI 审核
+  4. `ReviewAnalysisService.analyzeReview()` 使用通义千问分析评价内容
+  5. 返回审核结果：`APPROVE`（通过）、`REJECT`（拒绝）、`MANUAL_REVIEW`（人工审核）
+  6. 更新数据库评价状态和 AI 标签
+
+- **消息可靠性保障**：
+  - 生产者确认：`ConfirmCallback`（交换机确认）+ `ReturnsCallback`（路由失败回退）
+  - 消息重试：失败消息存入 Redis，最多重试 3 次
+  - 死信队列：重试失败后路由到 `review.audit.dlx.queue`，转人工审核
+
+- **核心类**：
+  - `cn.zjw.ai.service.ReviewAnalysisService`：AI 审核接口（`@AiService`）
+  - `cn.zjw.mq.consumer.ReviewAuditConsumer`：消息消费者
+  - `cn.zjw.config.RabbitMQConfig`：RabbitMQ 配置（交换机、队列、绑定、回调）
+
 ## 配置说明
 
 ### DashScope（`application.yaml`）
@@ -186,6 +219,23 @@ bigmodel:
 - MySQL URL 在各 profile 的 `spring.datasource.url` 中。
 - Redis：`spring.data.redis.host` / `port`（默认 `localhost:6380`）。
 
+### RabbitMQ（`application.yaml`）
+
+```yaml
+spring:
+  rabbitmq:
+    host: localhost
+    port: 5672
+    username: guest
+    password: guest
+    publisher-confirm-type: correlated  # 开启发布确认
+    publisher-returns: true              # 开启路由失败回退
+```
+
+- 消息确认机制：生产者发送消息后，通过 `ConfirmCallback` 和 `ReturnsCallback` 确认消息是否成功到达交换机和队列。
+- 消息重试：失败消息存入 Redis（`rabbitmq:correlation:msgId:{msgId}`），最多重试 3 次（见 `Constants.MAX_RETRY_COUNT`）。
+- 死信队列：重试失败后，消息路由到 `review.audit.dlx.queue`，由 `ReviewAuditConsumer.handleFailedReview()` 处理。
+
 ### JWT
 
 - **`jwt.secret`**、**`jwt.expire-hours`**（如 720）、**`jwt.header`**：`Authorization: Bearer <token>`。
@@ -205,10 +255,14 @@ consultant/
 │   │   ├── rag/RagConfig.java            # EmbeddingStore + ContentRetriever
 │   │   ├── rag/KnowledgeBaseInitializer.java
 │   │   ├── repository/RedisChatMemoryStore.java
+│   │   ├── service/ReviewAnalysisService.java  # AI 评价审核
 │   │   └── tools/FoodReservationTool.java
 │   ├── common/ …
-│   ├── config/       # WebMvcConfig、MybatisPlusConfig、RedisConfig 等
+│   ├── config/       # WebMvcConfig、MybatisPlusConfig、RedisConfig、RabbitMQConfig
 │   ├── controller/   # User、Restaurant、Order、Review、Dish
+│   ├── mq/
+│   │   ├── consumer/ReviewAuditConsumer.java   # 评价审核消费者
+│   │   └── message/ReviewAuditMessage.java     # 审核消息体
 │   ├── service/、mapper/、pojo/、interceptor/、handler/
 │   └── …
 ├── src/main/resources/
@@ -227,8 +281,9 @@ consultant/
 
 1. 执行 SQL 初始化（MySQL）。
 2. 配置 **`dashscope.api-key`**；若使用 MCP，配置 **`bigmodel.api-key`**。
-3. 首次启动会进行知识库向量化（若 Redis 无 `knowledge:initialized`），需数十秒级时间；后续启动会跳过。
-4. 若需**强制重建向量库**：删除 Redis 中 `knowledge:initialized` 及向量相关数据（或按运维要求清空对应索引）。
+3. 启动 **RabbitMQ**（Docker 或本地安装）：`docker run -d --name rabbitmq -p 5672:5672 -p 15672:15672 rabbitmq:management`
+4. 首次启动会进行知识库向量化（若 Redis 无 `knowledge:initialized`），需数十秒级时间；后续启动会跳过。
+5. 若需**强制重建向量库**：删除 Redis 中 `knowledge:initialized` 及向量相关数据（或按运维要求清空对应索引）。
 
 ### 修改 RAG 知识库
 
@@ -252,6 +307,13 @@ consultant/
 
 在 **`RagConfig.contentRetriever`** 中修改 **`.maxResults`**、**`.minScore`**。
 
+### 调试 RabbitMQ 消息流
+
+1. **查看消息队列状态**：访问 RabbitMQ 管理界面 `http://localhost:15672`（默认用户名/密码：guest/guest）
+2. **查看消息重试缓存**：Redis 中查询 `rabbitmq:correlation:msgId:*` 键
+3. **查看死信队列**：检查 `review.audit.dlx.queue` 中是否有失败消息
+4. **日志关键字**：搜索 `AI收到评价审核消息`、`AI审核评价结果`、`消息发送到交换机成功`
+
 ## 日志与调试
 
 - 可将 `logging.level.dev.langchain4j` 等设为 `DEBUG` 查看模型与 RAG 行为（按需在 `application.yaml` 配置）。
@@ -263,6 +325,7 @@ consultant/
 - RAG 与向量库不在 **`CommonConfig`**，而在 **`RagConfig` + `KnowledgeBaseInitializer`**。
 - 聊天路径为 **`/ai/chat`**，返回**非流式** `CommonResult`。
 - 增加 **智谱 MCP** 联网搜索；密钥与 DashScope **分开配置**。
+- 新增 **RabbitMQ + AI 评价审核**：异步处理评价内容，自动审核违规信息。
 
 ## 后续规划
 

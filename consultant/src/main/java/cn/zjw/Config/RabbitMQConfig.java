@@ -4,6 +4,10 @@ import org.springframework.amqp.core.DirectExchange;
 import org.springframework.amqp.core.Message;
 import org.springframework.amqp.core.Queue;
 import org.springframework.amqp.core.QueueBuilder;
+
+import java.util.Map;
+import java.util.concurrent.TimeUnit;
+
 import org.springframework.amqp.core.Binding;
 import org.springframework.amqp.core.BindingBuilder;
 import org.springframework.amqp.rabbit.connection.ConnectionFactory;
@@ -64,8 +68,7 @@ public class RabbitMQConfig {
                 //如果ack为true，说明消息发送成功
                 //如果ack为false，说明消息发送失败
                 if(ack){
-                    log.info("消息发送到交换机成功，msgId: {}，删除Redis缓存", msgId);
-                    redisTemplate.delete(Constants.RABBITMQ_CORRELATION_MSG_ID+msgId);
+                    log.info("消息发送到交换机成功，msgId: {}，等待路由队列确认", msgId);
                 }else{
                     log.error("消息发送到交换机失败，msgId: {}，原因: {}", msgId, cause);
                     handleMessageRetry(msgId, Constants.RABBITMQ_CORRELATION_MSG_ID+msgId,rabbitTemplate);
@@ -104,25 +107,40 @@ public class RabbitMQConfig {
      * @param string2 回调类型
      */
     private void handleMessageRetry(String msgId, String redisKey, RabbitTemplate rabbitTemplate) {
-        //1.从redis中取出消息，Hash结构,message消息体和retryCount重试次数分开取
-        String msgJson=(String) redisTemplate.opsForHash().get(redisKey, "message");   
+        //1.从redis中取出消息
+        String msgStr=(String) redisTemplate.opsForValue().get(redisKey);
+        if(msgStr==null){
+            log.warn("handleMessageRetry收到无消息体的消息，跳过处理");
+            return;
+        }
+        Map<String,Object> msgMap=JSONUtil.toBean(msgStr, Map.class);
+        //从消息体中获取消息体
+        String msgJson=(String) msgMap.get("message");
         //从消息体中获取重试次数
-        Long retryCount=(Long) redisTemplate.opsForHash().get(redisKey, "retryCount");
-        if(msgJson==null||retryCount==null){
+        Integer retryCount=(Integer) msgMap.get("retryCount");        
+        if(msgJson==null || retryCount==null){
             log.warn("handleMessageRetry收到无消息体或重试次数的消息，跳过处理");
             return;
         }
-        //反序列化
-        ReviewAuditMessage msg=JSONUtil.toBean(msgJson, ReviewAuditMessage.class);
         //判断重试次数
-        if(retryCount>=Constants.MAX_RETRY_COUNT){
+        if(retryCount>Constants.MAX_RETRY_COUNT){
             log.warn("handleMessageRetry重试次数超过最大重试次数，msgId: {}", msgId);
-            //删除Redis缓存
+            //缓存重试失败的消息
+            redisTemplate.opsForValue().set(Constants.MQ_FAILED_RETRY_KEY+msgId, msgJson,
+                Constants.MQ_FAILED_RETRY_EXPIRE_TIME, TimeUnit.SECONDS
+            );
+            //删除Redis重试信息的缓存
             redisTemplate.delete(redisKey);
             log.info("handleMessageRetry删除Redis缓存成功，msgId: {}", msgId);
         }else{
             //重试次数加1,并更新Redis缓存,原子操作
-            redisTemplate.opsForHash().increment(redisKey, "retryCount", 1);
+            msgMap.put("retryCount", retryCount+1);
+            //更新Redis缓存
+            redisTemplate.opsForValue().set(redisKey,JSONUtil.toJsonStr(msgMap),
+                    Constants.MQ_RETRY_INTERVAL_TIME, TimeUnit.SECONDS
+            );
+            //反序列化
+            ReviewAuditMessage msg=JSONUtil.toBean(msgJson, ReviewAuditMessage.class);
             //2.将消息重新发送到队列
             //将消息重新发送到队列
             CorrelationData correlationData=new CorrelationData(msgId);

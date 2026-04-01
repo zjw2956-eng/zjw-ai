@@ -5,6 +5,7 @@ spring:
     redis:
       host: localhost
       port: 6380
+      database: 0
   rabbitmq:
     host: localhost
     port: 5672
@@ -16,10 +17,10 @@ spring:
     #消费者配置
     listener:
       simple:
-        acknowledge-mode: auto  # 自动确认消息
+        acknowledge-mode: auto # 自动确认消息
         retry:
           enabled: true
-          max-attempts: 3  # 最大重试3次
+          max-attempts: 3 # 最大重试3次
           delay: 1000ms
 
   jackson:
@@ -41,9 +42,9 @@ langchain4j:
         temperature: 0.7
         timeout: 30s
       streaming-chat-model:
-          api-key: ${dashscope.api-key}
-          model-name: qwen-plus
-          temperature: 0.7
+        api-key: ${dashscope.api-key}
+        model-name: qwen-plus
+        temperature: 0.7
       embedding-model:
         api-key: ${dashscope.api-key}
         model-name: text-embedding-v4
@@ -79,5 +80,3 @@ server:
 
 bigmodel:
   api-key: ${bigmodel.api-key}
-
-

@@ -9,8 +9,12 @@ public class Constants {
     public static final Integer MAX_RETRY_COUNT = 3;
     //重试时间间隔，单位秒
     public static final Long MQ_RETRY_INTERVAL_TIME = 5L * 60L;
-
-       //餐厅摘要缓存键
+    //重试次数大于3次的失败消息缓存
+    public static final String MQ_FAILED_RETRY_KEY = "mq:retry:failed:msg:";
+    //重试次数大于3次的失败消息缓存过期时间，72小时
+    public static final Long MQ_FAILED_RETRY_EXPIRE_TIME = 72 * 60 * 60L;
+    
+    //餐厅摘要缓存键
     public static final String REDIS_RESTAURANT_SUMMARY_KEY = "restaurant:ai:summary:";
     //评价详情缓存键
     public static final String REDIS_REVIEW_DETAIL = "review:detail:";
@@ -30,6 +34,12 @@ public class Constants {
 
     //订单号前缀
     public static final String ORDER_ID_PREFIX = "ORDER";
+
+    //Redission锁键值对常量
+    //订单号生成器
+    public static final String REDIS_ORDER_NO_GENERATOR = "order:generate:lock";
+    //订单号序列
+    public static final String REDIS_ORDER_NO_SEQ = "order:seq:";
 
 
 }

@@ -154,17 +154,15 @@ public class ReviewServiceImpl extends ServiceImpl<ReviewMapper, Review> impleme
         //消息体序列化，把消息按照随机UUID生产的msgId存到redis里面
         String msgJson=JSONUtil.toJsonStr(message);
         // 3. 发送前把消息存入Redis（附带初始重试次数 0）
-        // 用Redis Hash结构存储消息体
         Map<String,Object> msgMap=new HashMap<>();
         msgMap.put("message", msgJson);
-        msgMap.put("retryCount", 0L);
-        redisTemplate.opsForHash().putAll(
+        msgMap.put("retryCount", 0);
+        String msgStrMap=JSONUtil.toJsonStr(msgMap);
+        redisTemplate.opsForValue().set(
                 Constants.RABBITMQ_CORRELATION_MSG_ID+msgId,
-                msgMap
+                msgStrMap,
+                Constants.MQ_RETRY_INTERVAL_TIME, TimeUnit.SECONDS
         );
-        //设置过期时间
-        redisTemplate.expire(Constants.RABBITMQ_CORRELATION_MSG_ID+msgId, Constants.MQ_RETRY_INTERVAL_TIME, TimeUnit.SECONDS);
-
         log.info("消息已存入Redis，msgId: {}", msgId);
 
         //不直接发MQ而是发布事件
