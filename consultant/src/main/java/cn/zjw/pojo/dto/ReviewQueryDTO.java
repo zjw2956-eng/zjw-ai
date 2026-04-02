@@ -1,18 +1,12 @@
 package cn.zjw.pojo.dto;
 
-import jakarta.validation.constraints.Max;
-import jakarta.validation.constraints.Min;
+import cn.zjw.common.model.PageParams;
 import jakarta.validation.constraints.NotNull;
 
 import lombok.Data;
 
 @Data
-public class ReviewQueryDTO {
-    @Min(value = 1, message = "页码不能小于1")
-    private Integer current = 1;
-    @Min(value = 1, message = "每页数量不能小于1")
-    @Max(value = 100, message = "每页数量不能超过100")
-    private Integer pageSize = 10;
+public class ReviewQueryDTO extends PageParams{
     @NotNull(message = "餐厅ID不能为空")
     private Long restaurantId; // 查某餐厅的评价列表（必传）
 

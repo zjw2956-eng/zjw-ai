@@ -40,38 +40,43 @@ public class ReviewAuditConsumer {
                 message.getContent(),
                 message.getRating()
             );
-            // //更新数据库
-            // Review review=new Review();
-            // review.setId(message.getReviewId());
-            // review.setAiTags(JSONUtil.toJsonStr(result.tags()));
-            // review.setAiVerdict(result.verdict());
 
-            // switch(result.verdict()){
-            //     case "APPROVE" -> review.setStatus(1); //已通过
-            //     case "REJECT" -> review.setStatus(2); //已拒绝
-            //     case "MANUAL_REVIEW" -> review.setStatus(0); //无法判断，要人工审核
-            // }
-            // reviewMapper.updateById(review);
-            // log.info("AI审核评价结果: {}", review);
-            String verdict = result.verdict().trim().toUpperCase();
-            if (verdict.equals("APPROVE")) {
-                reviewService.approveReview(message.getReviewId());
-                log.info("AI审核评价结果:APPROVE");
-            } else if (verdict.equals("REJECT")) {
-                reviewService.rejectReview(message.getReviewId());
-                log.info("AI审核评价结果:REJECT");
-            } else if (verdict.equals("MANUAL_REVIEW")) {
-                Review review = new Review();
-                review.setId(message.getReviewId());
-                review.setAiVerdict("AI_ERROR");
-                review.setStatus(ReviewStatus.PENDING.getCode()); // 人工审核
-                reviewMapper.updateById(review);
+            String verdict = result.verdict() == null ? "MANUAL_REVIEW"
+              : result.verdict().trim().toUpperCase();
+            //统一设置AI字段
+            Review review=new Review();
+            review.setId(message.getReviewId());
+            review.setAiTags(JSONUtil.toJsonStr(result.tags()));
+            review.setAiVerdict(verdict);
+            reviewMapper.updateById(review); 
+            //再按 verdict 走状态流转
+            switch (verdict) {
+                case "APPROVE" -> reviewService.approveReview(message.getReviewId());
+                case "REJECT" -> reviewService.rejectReview(message.getReviewId());
+                case "MANUAL_REVIEW" -> {
+                    Review manual = new Review();
+                    manual.setId(message.getReviewId());
+                    manual.setStatus(ReviewStatus.PENDING.getCode()); // 人工审核
+                    reviewMapper.updateById(manual);
+                }
+                default -> {
+                    Review unknown=new Review();
+                    unknown.setId(message.getReviewId());
+                    unknown.setAiVerdict("MANUAL_REVIEW");
+                    unknown.setStatus(ReviewStatus.PENDING.getCode()); // 人工审核
+                    reviewMapper.updateById(unknown);
+                    log.error("AI审核失败，reviewId={}: {}", message.getReviewId(),
+                            "未知审核结果");
+                }
             }
             log.info("消费者确认.....");
         } catch (Exception e) {
-            log.error("AI审核失败，reviewId={}: {}", message.getReviewId(),
-                    e.getMessage(), e);
-            // Spring AMQP 会自动重试3次，失败后自动路由到死信队列
+            // 真异常才标 AI_ERROR
+            Review fail = new Review();
+            fail.setId(message.getReviewId());
+            fail.setAiVerdict("AI_ERROR");
+            fail.setStatus(ReviewStatus.PENDING.getCode());
+            reviewMapper.updateById(fail);
             throw new RuntimeException("AI审核失败", e);
         }
     }

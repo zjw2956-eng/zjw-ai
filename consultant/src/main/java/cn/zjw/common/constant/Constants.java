@@ -13,9 +13,11 @@ public class Constants {
     public static final String MQ_FAILED_RETRY_KEY = "mq:retry:failed:msg:";
     //重试次数大于3次的失败消息缓存过期时间，72小时
     public static final Long MQ_FAILED_RETRY_EXPIRE_TIME = 72 * 60 * 60L;
-    
+
     //餐厅摘要缓存键
     public static final String REDIS_RESTAURANT_SUMMARY_KEY = "restaurant:ai:summary:";
+    //餐厅摘要缓存过期时间，24小时
+    public static final Long REDIS_RESTAURANT_SUMMARY_EXPIRE_TIME = 24 * 60 * 60L;
     //评价详情缓存键
     public static final String REDIS_REVIEW_DETAIL = "review:detail:";
     //订单详情缓存键

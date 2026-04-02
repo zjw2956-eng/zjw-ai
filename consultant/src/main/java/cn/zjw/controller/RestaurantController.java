@@ -10,7 +10,7 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
-
+import jakarta.validation.Valid;
 /**
  * 餐厅Controller
  */
@@ -27,15 +27,9 @@ public class RestaurantController {
      * 支持按菜系、价格区间、最低评分筛选
      */
     @GetMapping("/list")
-    public CommonResult<?> list(RestaurantQueryDTO query) {
-        if (query.getCurrent() < 1) {
-            return CommonResult.error(ResultCode.BAD_REQUEST, "当前页必须为正整数");
-        }
-        if (query.getSize() < 1 || query.getSize() > 100) {
-            return CommonResult.error(ResultCode.BAD_REQUEST, "每页条数须在1~100之间");
-        }
+    public CommonResult<?> list(@Valid RestaurantQueryDTO query) {
         Page<RestaurantVO> page = restaurantService.listRestaurants(
-                query.getCurrent(), query.getSize(),
+                query.getCurrent(), query.getPageSize(),
                 query.getCategory(), query.getMinPrice(),
                 query.getMaxPrice(), query.getMinRating());
         return CommonResult.success(page);

@@ -191,6 +191,9 @@ public class ReviewServiceImpl extends ServiceImpl<ReviewMapper, Review> impleme
         //删除餐厅详情缓存
         String restaurantCacheKey=Constants.REDIS_RESTAURANT_KEY + review.getRestaurantId();
         redisTemplate.delete(restaurantCacheKey);
+        //删除餐厅AI摘要缓存（有新评价通过后触发刷新）
+        String restaurantSummaryCacheKey = Constants.REDIS_RESTAURANT_SUMMARY_KEY + review.getRestaurantId();
+        redisTemplate.delete(restaurantSummaryCacheKey);
 
         // 异步更新评分
         rabbitTemplate.convertAndSend("review.exchange", "review.approved", review.getRestaurantId());

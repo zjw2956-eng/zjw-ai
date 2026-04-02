@@ -8,7 +8,6 @@ import cn.zjw.common.constant.Constants;
 import cn.zjw.common.enums.DishStatus;
 import cn.zjw.common.enums.ReviewStatus;
 import cn.zjw.common.exception.BusinessException;
-import cn.zjw.common.result.CommonResult;
 import cn.zjw.common.result.ResultCode;
 import cn.zjw.mapper.DishMapper;
 import cn.zjw.mapper.RestaurantMapper;
@@ -23,7 +22,6 @@ import cn.zjw.service.RestaurantService;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
-import com.fasterxml.jackson.databind.ObjectMapper;
 
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -59,9 +57,6 @@ public class RestaurantServiceImpl extends ServiceImpl<RestaurantMapper, Restaur
 
     @Autowired
     private RedisTemplate<String, Object> redisTemplate;
-    
-    @Autowired
-    private ObjectMapper objectMapper;
 
     @Autowired
     private ReviewMapper reviewMapper;
@@ -139,8 +134,8 @@ public class RestaurantServiceImpl extends ServiceImpl<RestaurantMapper, Restaur
         List<Dish> dishList= dishMapper.selectList(wrapper);
 
         List<DishVO> dishVOList=dishList.stream().map(d->BeanUtil.copyProperties(d, DishVO.class)).collect(Collectors.toList());
-            
-        //AI生成餐厅评价摘要
+
+        //AI生成餐厅评价摘要（仅返回摘要文本）
         String aiSummary = getSummary(id);
         // Entity → VO，写入缓存
         RestaurantVO restaurantVO = BeanUtil.copyProperties(restaurant, RestaurantVO.class);
@@ -185,11 +180,17 @@ public class RestaurantServiceImpl extends ServiceImpl<RestaurantMapper, Restaur
             //调用AI服务生成餐厅摘要，返回结构化对象RestaurantSummary
             RestaurantSummary restaurantSummary=restaurantSummaryService.generateSummary(reviewsText);
             log.info("AI 返回的摘要对象: {}", restaurantSummary);
-            // 改用 Jackson 序列化
-            String summaryStr = objectMapper.writeValueAsString(restaurantSummary);
-            log.info("转换后的 JSON: {}", summaryStr);
-            redisTemplate.opsForValue().set(cacheKey, summaryStr, Constants.REDIS_EXPIRE_TIME, TimeUnit.SECONDS);  
-            return summaryStr;
+            String summaryText = restaurantSummary == null ? null : restaurantSummary.summary();
+            if (!StringUtils.hasText(summaryText)) {
+                return null;
+            }
+            redisTemplate.opsForValue().set(
+                cacheKey,
+                summaryText,
+                Constants.REDIS_RESTAURANT_SUMMARY_EXPIRE_TIME,
+                TimeUnit.SECONDS
+            );
+            return summaryText;
         } catch (Exception e) {
             log.error("AI 生成摘要失败: restaurantId={}", restaurantId, e);
             return null;  // 降级处理，返回 null

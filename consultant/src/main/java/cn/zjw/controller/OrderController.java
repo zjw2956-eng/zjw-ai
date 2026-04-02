@@ -41,13 +41,7 @@ public class OrderController {
      * @return
      */
     @GetMapping("/list")
-    public CommonResult<?> listOrders(OrderQueryDTO dto){
-        if(dto.getCurrent() < 1){
-            return CommonResult.error(ResultCode.BAD_REQUEST,"当前页码必须为正整数");
-        }
-        if(dto.getPageSize() < 1 || dto.getPageSize() > 100){
-            return CommonResult.error(ResultCode.BAD_REQUEST,"查询页数在1-100之间");
-        }
+    public CommonResult<?> listOrders(@Valid OrderQueryDTO dto){
         Page<OrderVO> result=orderService.listOrders(dto.getCurrent(), dto.getPageSize(),dto.getStatus());
         return CommonResult.success(ResultCode.SUCCESS, "查询订单列表成功",result); 
     }

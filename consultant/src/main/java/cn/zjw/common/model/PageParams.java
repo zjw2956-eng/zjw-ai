@@ -5,23 +5,22 @@ import lombok.AllArgsConstructor;
 import lombok.NoArgsConstructor;
 import java.io.Serializable;
 
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
+
 @Data
-@Builder
 @AllArgsConstructor
 @NoArgsConstructor
 public class PageParams {
 
-    //默认起始页码
-    public static final Long DEFAULT_PAGE_CURRENT = 1L;
-    //默认每页记录数
-    public static final Long DEFAULT_PAGE_SIZE = 10L;
 
     //当前页码
-    @Builder.Default
-    private Long pageNo = DEFAULT_PAGE_CURRENT;
+    @Min(value = 1, message = "当前页码不能小于1")
+    public Integer current = 1;
 
     //每页记录数
-    @Builder.Default
-    private Long pageSize = DEFAULT_PAGE_SIZE;
+    @Min(value = 1, message = "每页记录数不能小于1")
+    @Max(value = 100, message = "每页记录数不能超过100")
+    public Integer pageSize = 5;
 }
-
+ 
