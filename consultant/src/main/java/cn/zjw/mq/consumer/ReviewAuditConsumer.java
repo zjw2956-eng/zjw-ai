@@ -12,6 +12,7 @@ import cn.zjw.common.enums.ReviewStatus;
 import cn.zjw.mapper.ReviewMapper;
 import cn.zjw.mq.message.ReviewAuditMessage;
 import cn.zjw.pojo.entity.Review;
+import cn.zjw.service.ReviewService;
 import lombok.extern.slf4j.Slf4j;
 
 @Component
@@ -24,6 +25,9 @@ public class ReviewAuditConsumer {
 
     @Autowired
     private ReviewMapper reviewMapper;
+
+    @Autowired
+    private ReviewService reviewService;
     
     @RabbitListener(queues = "review.audit.queue")
     public void handleReviewAudit(ReviewAuditMessage message){
@@ -36,19 +40,33 @@ public class ReviewAuditConsumer {
                 message.getContent(),
                 message.getRating()
             );
-            //更新数据库
-            Review review=new Review();
-            review.setId(message.getReviewId());
-            review.setAiTags(JSONUtil.toJsonStr(result.tags()));
-            review.setAiVerdict(result.verdict());
+            // //更新数据库
+            // Review review=new Review();
+            // review.setId(message.getReviewId());
+            // review.setAiTags(JSONUtil.toJsonStr(result.tags()));
+            // review.setAiVerdict(result.verdict());
 
-            switch(result.verdict()){
-                case "APPROVE" -> review.setStatus(1); //已通过
-                case "REJECT" -> review.setStatus(2); //已拒绝
-                case "MANUAL_REVIEW" -> review.setStatus(0); //无法判断，要人工审核
+            // switch(result.verdict()){
+            //     case "APPROVE" -> review.setStatus(1); //已通过
+            //     case "REJECT" -> review.setStatus(2); //已拒绝
+            //     case "MANUAL_REVIEW" -> review.setStatus(0); //无法判断，要人工审核
+            // }
+            // reviewMapper.updateById(review);
+            // log.info("AI审核评价结果: {}", review);
+            String verdict = result.verdict().trim().toUpperCase();
+            if (verdict.equals("APPROVE")) {
+                reviewService.approveReview(message.getReviewId());
+                log.info("AI审核评价结果:APPROVE");
+            } else if (verdict.equals("REJECT")) {
+                reviewService.rejectReview(message.getReviewId());
+                log.info("AI审核评价结果:REJECT");
+            } else if (verdict.equals("MANUAL_REVIEW")) {
+                Review review = new Review();
+                review.setId(message.getReviewId());
+                review.setAiVerdict("AI_ERROR");
+                review.setStatus(ReviewStatus.PENDING.getCode()); // 人工审核
+                reviewMapper.updateById(review);
             }
-            reviewMapper.updateById(review);
-            log.info("AI审核评价结果: {}", review);
             log.info("消费者确认.....");
         } catch (Exception e) {
             log.error("AI审核失败，reviewId={}: {}", message.getReviewId(),

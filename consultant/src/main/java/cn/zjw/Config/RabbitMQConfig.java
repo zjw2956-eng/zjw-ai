@@ -197,4 +197,20 @@ public class RabbitMQConfig {
                 .to(reviewExchange())
                 .with("review.audit"); //路由鍵
     }
+
+    // 评价通过队列
+    @Bean
+    public Queue reviewApprovedQueue() {
+        return QueueBuilder.durable("review.approved.queue").build();
+    }
+    /**
+     * 绑定评价通过队列到交换机
+     */
+    @Bean
+    public Binding reviewApprovedBinding(){
+        return BindingBuilder
+                .bind(reviewApprovedQueue())
+                .to(reviewExchange())
+                .with("review.approved");
+    }
 }

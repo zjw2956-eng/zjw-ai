@@ -22,6 +22,7 @@ public class Constants {
     public static final String REDIS_ORDER_DETAIL = "order:detail:";
     //用户token缓存键
     public static final String REDIS_USER_TOKEN = "user:token:";
+    //餐厅信息缓存键
     public static final String REDIS_RESTAURANT_KEY = "restaurant:info:";
     //防止缓存穿透的空值的过期时间,2分钟
     public static final Long REDIS_EMPTY_KEY_EXPIRE_TIME = 2 * 60L;

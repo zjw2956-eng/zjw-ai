@@ -12,8 +12,6 @@ import cn.hutool.json.JSONUtil;
 import org.springframework.stereotype.Service;
 import cn.zjw.common.constant.Constants;
 import cn.zjw.pojo.dto.OrderDTO;
-
-import org.redisson.api.RedissonClient;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.serializer.StringRedisSerializer;
@@ -52,8 +50,9 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, OrderInfo> implem
     private RestaurantMapper restaurantMapper;
     @Autowired
     private StringRedisTemplate redisTemplate;
+
     @Autowired
-    private RedissonClient redissonClient;
+    private OrderNoGenerator orderNoGenerator;
 
     @Autowired
     private StringRedisTemplate stringRedisTemplate;
@@ -81,8 +80,7 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, OrderInfo> implem
         Long userId=UserContext.getCurrentUserId();
         orderInfo.setUserId(userId);  // ✅ 设置用户ID
         //生成订单号
-        OrderNoGenerator orderNoGenerator=new OrderNoGenerator();
-        String orderNo = orderNoGenerator.generateOrderNo(redissonClient,stringRedisTemplate);
+        String orderNo = orderNoGenerator.generateOrderNo();
         orderInfo.setOrderNo(orderNo);
         //设置状态为待确认
         orderInfo.setStatus(OrderStatus.PENDING.getCode());

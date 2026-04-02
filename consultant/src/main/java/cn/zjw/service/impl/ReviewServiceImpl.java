@@ -188,17 +188,12 @@ public class ReviewServiceImpl extends ServiceImpl<ReviewMapper, Review> impleme
         //删除缓存
         String cacheKey=Constants.REDIS_REVIEW_DETAIL + review.getUserId() + ":" + id;
         redisTemplate.delete(cacheKey);
+        //删除餐厅详情缓存
+        String restaurantCacheKey=Constants.REDIS_RESTAURANT_KEY + review.getRestaurantId();
+        redisTemplate.delete(restaurantCacheKey);
 
-        // 同步更新评分（后续改为 MQ 异步）
-        updateRestaurantRating(review.getRestaurantId());
-        // TODO: [RabbitMQ] 评分更新：后续替换为发送 MQ 消息，消费者异步执行 updateRestaurantRating()
-        //   交换机: review.exchange，routing key: review.approved
-        //   消息体: { restaurantId }
-        //   注意: 迁移时需将 updateRestaurantRating() 提取到独立的 RatingUpdateService Bean
-        // TODO: [RabbitMQ] 通知用户评价已通过审核
-        //   交换机: review.exchange，routing key: review.notify.user
-        //   消息体: { userId: review.getUserId(), reviewId: id }
-        //   消费者: 向用户推送"您的评价已通过审核"通知
+        // 异步更新评分
+        rabbitTemplate.convertAndSend("review.exchange", "review.approved", review.getRestaurantId());
     }
 
     @Override
@@ -219,40 +214,10 @@ public class ReviewServiceImpl extends ServiceImpl<ReviewMapper, Review> impleme
         //删除缓存
         String cacheKey=Constants.REDIS_REVIEW_DETAIL + review.getUserId() + ":" + id;
         redisTemplate.delete(cacheKey);
-        // TODO: [RabbitMQ] 通知用户评价未通过审核
-        //   交换机: review.exchange，routing key: review.notify.user
-        //   消息体: { userId: review.getUserId(), reviewId: id }
-        //   消费者: 向用户推送"您的评价未通过审核"通知
     }
 
 
-    /**
-     * 更新餐厅评分,私有方法
-     * 计算餐厅的平均评分，并更新到餐厅表
-     * // TODO: [RabbitMQ] 迁移时需将此方法提取到独立的 RatingUpdateService Bean 中
-     * 原因：MQ消费者是独立Bean，无法调用当前类的 private 方法
-     * 所以需要将此方法提取到独立的 RatingUpdateService Bean 中
-     * 然后通过MQ消费者调用该方法
-     * 这样就可以保证餐厅评分更新的一致性和可靠性
-     * 同时也可以保证餐厅评分更新的及时性
-     * 同时也可以保证餐厅评分更新的及时性
-     * @param restaurantId 餐厅ID
-     */
-    private void updateRestaurantRating(Long restaurantId){
-        BigDecimal avgRating= reviewMapper.getAvgRatingByRestaurantId(restaurantId);
-        if (avgRating == null) {
-            avgRating=BigDecimal.ZERO;
-        }
-        Restaurant restaurant=restaurantMapper.selectById(restaurantId);
-        if (restaurant == null) {
-            throw new BusinessException(ResultCode.NOT_FOUND,"餐厅不存在");
-        }
-        restaurant.setRating(avgRating);
-        restaurantMapper.updateById(restaurant);
-        //删除缓存
-        redisTemplate.delete(Constants.REDIS_RESTAURANT_KEY + restaurantId);
-    }
-
+   
 
     @Override
     public Page<ReviewVO> listByRestaurantId(ReviewQueryDTO dto){
@@ -432,15 +397,15 @@ public class ReviewServiceImpl extends ServiceImpl<ReviewMapper, Review> impleme
 
         if (review.getStatus().equals(ReviewStatus.APPROVED.getCode())) {
             //更新餐厅评分
-            updateRestaurantRating(review.getRestaurantId());
+            // 异步更新评分
+            rabbitTemplate.convertAndSend("review.exchange", "review.approved", review.getRestaurantId());
         }
         //删除缓存
         String cacheKey=Constants.REDIS_REVIEW_DETAIL + review.getUserId() + ":" + id;
         redisTemplate.delete(cacheKey);
-        //TODO: [RabbitMQ] 删除评价后发送通知消息，告知用户评价已删除
-        //   交换机: review.exchange，routing key: review.delete
-        //   消息体: { userId: review.getUserId(), reviewId: id }
-        //   消费者: 向用户推送"您的评价已删除"通知
+        //删除餐厅详情缓存
+        String restaurantCacheKey=Constants.REDIS_RESTAURANT_KEY + review.getRestaurantId();
+        redisTemplate.delete(restaurantCacheKey);
     }
 
     @Override
