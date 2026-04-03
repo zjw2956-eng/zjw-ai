@@ -4,7 +4,7 @@ spring:
   data:
     redis:
       host: localhost
-      port: 6380
+      port: 6379
       database: 0
   rabbitmq:
     host: localhost
@@ -24,6 +24,7 @@ spring:
           delay: 1000ms
 
   jackson:
+    date-format: yyyy-MM-dd'T'HH:mm:ss
     time-zone: Asia/Shanghai
     serialization:
       write-dates-as-timestamps: false
@@ -80,3 +81,19 @@ server:
 
 bigmodel:
   api-key: ${bigmodel.api-key}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  endpoint:
+    health:
+      show-details: always
+  prometheus:
+    metrics:
+      export:
+        enabled: true
+  metrics:
+    tags:
+      application: consultant

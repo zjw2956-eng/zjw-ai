@@ -4,6 +4,7 @@ import cn.hutool.core.bean.BeanUtil;
 import cn.hutool.json.JSONUtil;
 import cn.zjw.ai.model.RestaurantSummary;
 import cn.zjw.ai.service.RestaurantSummaryService;
+import cn.zjw.common.cache.CacheClient;
 import cn.zjw.common.constant.Constants;
 import cn.zjw.common.enums.DishStatus;
 import cn.zjw.common.enums.ReviewStatus;
@@ -26,8 +27,6 @@ import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Lazy;
-import org.springframework.data.redis.core.RedisTemplate;
-import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 import java.math.BigDecimal;
@@ -44,10 +43,6 @@ public class RestaurantServiceImpl extends ServiceImpl<RestaurantMapper, Restaur
 
     @Autowired
     private RestaurantMapper restaurantMapper;
-
-    @Autowired
-    private StringRedisTemplate stringRedisTemplate;
-
     @Autowired
     private DishMapper dishMapper;
 
@@ -56,35 +51,34 @@ public class RestaurantServiceImpl extends ServiceImpl<RestaurantMapper, Restaur
     private RestaurantSummaryService restaurantSummaryService;
 
     @Autowired
-    private RedisTemplate<String, Object> redisTemplate;
-
-    @Autowired
     private ReviewMapper reviewMapper;
 
+    @Autowired
+    private CacheClient cacheClient;
 
     @Override
     public Page<RestaurantVO> listRestaurants(Integer current, Integer size,
-        String category, BigDecimal minPrice,BigDecimal maxPrice, BigDecimal minRating) {
+            String category, BigDecimal minPrice, BigDecimal maxPrice, BigDecimal minRating) {
         LambdaQueryWrapper<Restaurant> wrapper = new LambdaQueryWrapper<Restaurant>()
-            /**
-             * 分页条件
-             * 状态正常：营业中
-             * 未删除：正常营业
-             * 分类匹配：可选菜系
-             * 价格范围：可选价格区间
-             * 评分范围：可选评分区间
-             * 排序：按评分降序
-             */
+                /**
+                 * 分页条件
+                 * 状态正常：营业中
+                 * 未删除：正常营业
+                 * 分类匹配：可选菜系
+                 * 价格范围：可选价格区间
+                 * 评分范围：可选评分区间
+                 * 排序：按评分降序
+                 */
                 .eq(Restaurant::getStatus, Constants.RESTAURANT_STATUS_NORMAL)
                 .eq(Restaurant::getIsDeleted, 0)
-                .eq(StringUtils.hasText(category),Restaurant::getCategory,category)
-                //价格范围 ge是大于等于，le是小于等于
-                .ge(minPrice!=null,Restaurant::getAvgPrice,minPrice)
-                .le(maxPrice!=null,Restaurant::getAvgPrice,maxPrice)
-                .ge(minRating!=null,Restaurant::getRating,minRating)
+                .eq(StringUtils.hasText(category), Restaurant::getCategory, category)
+                // 价格范围 ge是大于等于，le是小于等于
+                .ge(minPrice != null, Restaurant::getAvgPrice, minPrice)
+                .le(maxPrice != null, Restaurant::getAvgPrice, maxPrice)
+                .ge(minRating != null, Restaurant::getRating, minRating)
                 .orderByDesc(Restaurant::getRating);
-        //关键步骤，执行分页查询，MyBatis-Plus提供的page方法
-        //返回的 restaurantPage 里装好了：当前页数据列表 + 总记录数 + 总页数
+        // 关键步骤，执行分页查询，MyBatis-Plus提供的page方法
+        // 返回的 restaurantPage 里装好了：当前页数据列表 + 总记录数 + 总页数
         Page<Restaurant> restaurantPage = this.page(new Page<>(current, size), wrapper);
 
         /**
@@ -104,8 +98,7 @@ public class RestaurantServiceImpl extends ServiceImpl<RestaurantMapper, Restaur
         Page<RestaurantVO> resultPage = new Page<>(
                 restaurantPage.getCurrent(),
                 restaurantPage.getSize(),
-                restaurantPage.getTotal()
-        );
+                restaurantPage.getTotal());
         resultPage.setRecords(voList);
 
         return resultPage;
@@ -113,41 +106,56 @@ public class RestaurantServiceImpl extends ServiceImpl<RestaurantMapper, Restaur
 
     @Override
     public RestaurantVO getRestaurantById(Long id) {
-        // 先查 Redis 缓存
-        String cacheKey = Constants.REDIS_RESTAURANT_KEY + id;
-        String json = stringRedisTemplate.opsForValue().get(cacheKey);
-        if (json != null) {
-            return JSONUtil.toBean(json, RestaurantVO.class);
+        RestaurantVO result = cacheClient.queryWithMutex(
+                Constants.REDIS_RESTAURANT_KEY,
+                Constants.REDIS_LOCK_RESTAURANT_KEY,
+                id,
+                RestaurantVO.class,
+                this::buildRestaurantVO,
+                Constants.REDIS_EXPIRE_TIME,
+                Constants.REDIS_EMPTY_KEY_EXPIRE_TIME,
+                "restaurant");
+        if (result == null) {
+            throw new BusinessException(ResultCode.NOT_FOUND, "餐厅不存在");
         }
+        return result;
+    }
 
+    /**
+     * 构造RestaurantVO
+     * 
+     * @param restaurantId
+     * @return
+     */
+    private RestaurantVO buildRestaurantVO(Long id) {
         // 缓存未命中，查数据库
         Restaurant restaurant = restaurantMapper.selectById(id);
         if (restaurant == null) {
-            throw new BusinessException(ResultCode.NOT_FOUND,"餐厅不存在");
+            return null;
         }
-        //查询菜品
+        // 查询菜品
         LambdaQueryWrapper<Dish> wrapper = new LambdaQueryWrapper<Dish>()
-            .eq(Dish::getRestaurantId, id)
-            .eq(Dish::getStatus, DishStatus.ON_SALE.getCode())
-            .eq(Dish::getIsDeleted, 0)
-            .orderByDesc(Dish::getIsRecommend);
-        List<Dish> dishList= dishMapper.selectList(wrapper);
+                .eq(Dish::getRestaurantId, id)
+                .eq(Dish::getStatus, DishStatus.ON_SALE.getCode())
+                .eq(Dish::getIsDeleted, 0)
+                .orderByDesc(Dish::getIsRecommend);
+        List<Dish> dishList = dishMapper.selectList(wrapper);
 
-        List<DishVO> dishVOList=dishList.stream().map(d->BeanUtil.copyProperties(d, DishVO.class)).collect(Collectors.toList());
+        List<DishVO> dishVOList = dishList.stream().map(d -> BeanUtil.copyProperties(d, DishVO.class))
+                .collect(Collectors.toList());
 
-        //AI生成餐厅评价摘要（仅返回摘要文本）
+        // AI生成餐厅评价摘要（仅返回摘要文本）
         String aiSummary = getSummary(id);
         // Entity → VO，写入缓存
         RestaurantVO restaurantVO = BeanUtil.copyProperties(restaurant, RestaurantVO.class);
-        //设置菜品列表
+        // 设置菜品列表
         restaurantVO.setDishes(dishVOList);
-        //设置评价摘要
+        // 设置评价摘要
         restaurantVO.setAiSummary(aiSummary);
         // TODO: [缓存一致性] 当菜品状态变更（上架/下架/新增/删除）时，需删除餐厅缓存
-        //   涉及接口：DishService.addDish()、DishService.updateDishStatus() 等
-        //   删除方式：stringRedisTemplate.delete(Constants.REDIS_RESTAURANT_KEY + restaurantId)
-        stringRedisTemplate.opsForValue().set(cacheKey, JSONUtil.toJsonStr(restaurantVO),
-                Constants.REDIS_EXPIRE_TIME, TimeUnit.SECONDS);
+        // 涉及接口：DishService.addDish()、DishService.updateDishStatus() 等
+        // 删除方式：stringRedisTemplate.delete(Constants.REDIS_RESTAURANT_KEY +
+        // restaurantId)
         return restaurantVO;
     }
 
@@ -155,45 +163,52 @@ public class RestaurantServiceImpl extends ServiceImpl<RestaurantMapper, Restaur
      * 获取或生成餐厅摘要（带缓存）
      */
     private String getSummary(Long restaurantId) {
-        String cacheKey = Constants.REDIS_RESTAURANT_SUMMARY_KEY + restaurantId;
-        String cachedSummary = (String) redisTemplate.opsForValue().get(cacheKey);
-        if (cachedSummary != null) {
-            return cachedSummary;
-        }
+        return cacheClient.queryWithMutex(
+                Constants.REDIS_RESTAURANT_SUMMARY_KEY,
+                Constants.REDIS_LOCK_RESTAURANT_SUMMARY_KEY,
+                restaurantId,
+                String.class,
+                this::buildSummaryFromDbAndAi,
+                Constants.REDIS_RESTAURANT_SUMMARY_EXPIRE_TIME,
+                Constants.REDIS_EMPTY_KEY_EXPIRE_TIME,
+                "restaurant_summary");
+    }
+
+    /**
+     * 从数据库和AI生成摘要
+     * 
+     * @param restaurantId
+     * @return
+     */
+    private String buildSummaryFromDbAndAi(Long restaurantId) {
         // 缓存不存在，查询最近 20 条已通过审核的评价
-        LambdaQueryWrapper<Review> reviewWrapper = new  LambdaQueryWrapper<>();
-        reviewWrapper.eq(Review::getRestaurantId,restaurantId)
-            .eq(Review::getIsDeleted,0)
-            .eq(Review::getStatus,ReviewStatus.APPROVED.getCode())
-            .orderByDesc(Review::getCreateTime)
-            .last("limit 20");
-        List<Review> reviews=reviewMapper.selectList(reviewWrapper);
-        if(reviews.size()<3){
+        LambdaQueryWrapper<Review> reviewWrapper = new LambdaQueryWrapper<>();
+        reviewWrapper.eq(Review::getRestaurantId, restaurantId)
+                .eq(Review::getIsDeleted, 0)
+                .eq(Review::getStatus, ReviewStatus.APPROVED.getCode())
+                .orderByDesc(Review::getCreateTime)
+                .last("limit 20");
+        List<Review> reviews = reviewMapper.selectList(reviewWrapper);
+        if (reviews.size() < 3) {
             return null;
         }
-        //把List<Review>转换为String
-        String reviewsText= reviews.stream()
-            .map(r->"评分:"+ r.getRating() + "星，内容："+ r.getContent())
-            .collect(Collectors.joining("\n"));
+        // 把List<Review>转换为String
+        String reviewsText = reviews.stream()
+                .map(r -> "评分:" + r.getRating() + "星，内容：" + r.getContent())
+                .collect(Collectors.joining("\n"));
         try {
             log.info("准备调用 AI 生成摘要，评价文本: {}", reviewsText);
-            //调用AI服务生成餐厅摘要，返回结构化对象RestaurantSummary
-            RestaurantSummary restaurantSummary=restaurantSummaryService.generateSummary(reviewsText);
+            // 调用AI服务生成餐厅摘要，返回结构化对象RestaurantSummary
+            RestaurantSummary restaurantSummary = restaurantSummaryService.generateSummary(reviewsText);
             log.info("AI 返回的摘要对象: {}", restaurantSummary);
             String summaryText = restaurantSummary == null ? null : restaurantSummary.summary();
             if (!StringUtils.hasText(summaryText)) {
                 return null;
             }
-            redisTemplate.opsForValue().set(
-                cacheKey,
-                summaryText,
-                Constants.REDIS_RESTAURANT_SUMMARY_EXPIRE_TIME,
-                TimeUnit.SECONDS
-            );
             return summaryText;
         } catch (Exception e) {
             log.error("AI 生成摘要失败: restaurantId={}", restaurantId, e);
-            return null;  // 降级处理，返回 null
+            return null;
         }
     }
 
@@ -219,12 +234,12 @@ public class RestaurantServiceImpl extends ServiceImpl<RestaurantMapper, Restaur
     @Override
     public List<Restaurant> getTopRatedRestaurants(String category, BigDecimal minRating, Integer limit) {
         // 查询高分餐厅（用于推荐）
-        LambdaQueryWrapper<Restaurant> wrapper=new LambdaQueryWrapper<>();
-        wrapper.eq(Restaurant::getIsDeleted,0)
-            .eq(category!=null,Restaurant::getCategory,category)
-            .ge(minRating!=null,Restaurant::getRating,minRating)
-            .orderByDesc(Restaurant::getRating)
-            .last("limit" + (limit==null?10:limit));
+        LambdaQueryWrapper<Restaurant> wrapper = new LambdaQueryWrapper<>();
+        wrapper.eq(Restaurant::getIsDeleted, 0)
+                .eq(category != null, Restaurant::getCategory, category)
+                .ge(minRating != null, Restaurant::getRating, minRating)
+                .orderByDesc(Restaurant::getRating)
+                .last("limit" + (limit == null ? 10 : limit));
         return restaurantMapper.selectList(wrapper);
     }
 }

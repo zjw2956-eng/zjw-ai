@@ -22,6 +22,7 @@ import cn.zjw.common.enums.OrderStatus;
 import cn.zjw.common.exception.BusinessException;
 import cn.zjw.common.result.ResultCode;
 import cn.zjw.common.utils.SensitiveWordUtil;
+import cn.zjw.common.cache.CacheClient;
 import cn.zjw.common.constant.Constants;
 import cn.zjw.common.context.UserContext;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
@@ -78,6 +79,9 @@ public class ReviewServiceImpl extends ServiceImpl<ReviewMapper, Review> impleme
 
     @Autowired
     private ApplicationEventPublisher eventPublisher;
+
+    @Autowired
+    private CacheClient cacheClient;
 
     
     @Override
@@ -187,13 +191,13 @@ public class ReviewServiceImpl extends ServiceImpl<ReviewMapper, Review> impleme
 
         //删除缓存
         String cacheKey=Constants.REDIS_REVIEW_DETAIL + review.getUserId() + ":" + id;
-        redisTemplate.delete(cacheKey);
+        cacheClient.delete(cacheKey);
         //删除餐厅详情缓存
         String restaurantCacheKey=Constants.REDIS_RESTAURANT_KEY + review.getRestaurantId();
-        redisTemplate.delete(restaurantCacheKey);
+        cacheClient.delete(restaurantCacheKey);
         //删除餐厅AI摘要缓存（有新评价通过后触发刷新）
         String restaurantSummaryCacheKey = Constants.REDIS_RESTAURANT_SUMMARY_KEY + review.getRestaurantId();
-        redisTemplate.delete(restaurantSummaryCacheKey);
+        cacheClient.delete(restaurantSummaryCacheKey);
 
         // 异步更新评分
         rabbitTemplate.convertAndSend("review.exchange", "review.approved", review.getRestaurantId());
@@ -216,7 +220,7 @@ public class ReviewServiceImpl extends ServiceImpl<ReviewMapper, Review> impleme
 
         //删除缓存
         String cacheKey=Constants.REDIS_REVIEW_DETAIL + review.getUserId() + ":" + id;
-        redisTemplate.delete(cacheKey);
+        cacheClient.delete(cacheKey);
     }
 
 
@@ -341,47 +345,51 @@ public class ReviewServiceImpl extends ServiceImpl<ReviewMapper, Review> impleme
 
     @Override
     public MyReviewVO getReviewDetail(Long id) {
-        //获取当前用户ID
-        Long userId= UserContext.getCurrentUserId();
-        //查询缓存
-        String cacheKey=Constants.REDIS_REVIEW_DETAIL + userId + ":" + id;
-        MyReviewVO cachedMyReviewVO=(MyReviewVO) redisTemplate.opsForValue().get(cacheKey);
-        if(cachedMyReviewVO!=null){
-            return cachedMyReviewVO;
+        Long userId = UserContext.getCurrentUserId();
+        MyReviewVO result = cacheClient.queryWithPassThrough(
+                Constants.REDIS_REVIEW_DETAIL + userId + ":",
+                id,
+                MyReviewVO.class,
+                this::buildMyReviewVO,
+                Constants.REDIS_EXPIRE_TIME,
+                Constants.REDIS_EMPTY_KEY_EXPIRE_TIME,
+                "review");
+        if (result == null) {
+            throw new BusinessException(ResultCode.NOT_FOUND, "评价不存在");
         }
-        //缓存未命中，查询数据库
-        //查询评价是否存在
-        Review review=reviewMapper.selectById(id);
-        if(review==null){
-            throw new BusinessException(ResultCode.NOT_FOUND,"评价不存在");
-        }
-        //权限校验
-        if(!review.getUserId().equals(userId)){
-            throw new BusinessException(ResultCode.FORBIDDEN,"无权限查看该评价");
-        }
-        //查询餐厅名
-        Restaurant restaurant=restaurantMapper.selectById(review.getRestaurantId());
-        if(restaurant==null){
-            throw new BusinessException(ResultCode.NOT_FOUND,"餐厅不存在");
-        }
-        //查询订单号
-        OrderInfo orderInfo=orderMapper.selectById(review.getOrderId());
-        if(orderInfo==null){
-            throw new BusinessException(ResultCode.NOT_FOUND,"订单不存在");
-        }
-        String restaurantName=restaurant.getName();
-        String orderNo=orderInfo.getOrderNo();
-        //构建VO
-        MyReviewVO vo=new MyReviewVO();
-        BeanUtil.copyProperties(review, vo);
-        //将图片列表转换为List<String>
-        vo.setImages(JSONUtil.toList(review.getImages(), String.class));
-        vo.setRestaurantName(restaurantName);
-        vo.setOrderNo(orderNo);
-        vo.setStatusDesc(ReviewStatus.getDescByCode(review.getStatus()));
+        return result;
+    }
 
-        //缓存VO
-        redisTemplate.opsForValue().set(cacheKey, vo, Constants.REDIS_EXPIRE_TIME, TimeUnit.SECONDS);
+    /**
+     * 构造MyReviewVO
+     * 
+     * @param id
+     * @return
+     */
+    private MyReviewVO buildMyReviewVO(Long id) {
+        Long userId = UserContext.getCurrentUserId();
+        Review review = reviewMapper.selectById(id);
+        if (review == null) {
+            return null;
+        }
+        if (!review.getUserId().equals(userId)) {
+            throw new BusinessException(ResultCode.FORBIDDEN, "无权限查看该评价");
+        }
+        Restaurant restaurant = restaurantMapper.selectById(review.getRestaurantId());
+        if (restaurant == null) {
+            throw new BusinessException(ResultCode.NOT_FOUND, "餐厅不存在");
+        }
+        OrderInfo orderInfo = orderMapper.selectById(review.getOrderId());
+        if (orderInfo == null) {
+            throw new BusinessException(ResultCode.NOT_FOUND, "订单不存在");
+        }
+
+        MyReviewVO vo = new MyReviewVO();
+        BeanUtil.copyProperties(review, vo);
+        vo.setImages(JSONUtil.toList(review.getImages(), String.class));
+        vo.setRestaurantName(restaurant.getName());
+        vo.setOrderNo(orderInfo.getOrderNo());
+        vo.setStatusDesc(ReviewStatus.getDescByCode(review.getStatus()));
         return vo;
     }
 
@@ -405,10 +413,10 @@ public class ReviewServiceImpl extends ServiceImpl<ReviewMapper, Review> impleme
         }
         //删除缓存
         String cacheKey=Constants.REDIS_REVIEW_DETAIL + review.getUserId() + ":" + id;
-        redisTemplate.delete(cacheKey);
+        cacheClient.delete(cacheKey);
         //删除餐厅详情缓存
         String restaurantCacheKey=Constants.REDIS_RESTAURANT_KEY + review.getRestaurantId();
-        redisTemplate.delete(restaurantCacheKey);
+        cacheClient.delete(restaurantCacheKey);
     }
 
     @Override

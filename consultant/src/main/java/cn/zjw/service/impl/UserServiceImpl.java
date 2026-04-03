@@ -1,5 +1,6 @@
 package cn.zjw.service.impl;
 
+import cn.zjw.common.cache.CacheClient;
 import cn.zjw.common.constant.Constants;
 import cn.zjw.common.exception.BusinessException;
 import cn.zjw.common.result.ResultCode;
@@ -35,6 +36,8 @@ public class UserServiceImpl implements UserService {
 
     @Autowired
     private JwtUtil jwtUtil;
+
+    @Autowired CacheClient cacheClient;
 
     @Override
     @Transactional(rollbackFor = Exception.class)
@@ -82,9 +85,29 @@ public class UserServiceImpl implements UserService {
 
     @Override
     public UserVO getUserInfo(Long userId) {
+        // String json = stringRedisTemplate.opsForValue().get(Constants.REDIS_USER_INFO_KEY+userId);
+        // if (json != null) {
+        //     return JSONUtil.toBean(json, UserVO.class);
+        // }
+        UserVO result=cacheClient.queryWithMutex(
+            Constants.REDIS_USER_INFO_KEY, 
+            Constants.REDIS_LOCK_USER_KEY, 
+            userId, 
+            UserVO.class, 
+            this::buildUserVO, 
+            Constants.REDIS_USER_INFO_EXPIRE_TIME, 
+            Constants.REDIS_EMPTY_KEY_EXPIRE_TIME,
+            "user");
+        if (result==null) {
+            throw new BusinessException(ResultCode.NOT_FOUND, "用户不存在");
+        }
+        return result;
+    }
+
+    private UserVO buildUserVO(Long userId){
         User user = userMapper.selectById(userId);
         if (user == null) {
-            throw new BusinessException(ResultCode.NOT_FOUND, "用户不存在");
+            return null;
         }
         UserVO userVO = new UserVO();
         userVO.setId(user.getId());

@@ -1,8 +1,8 @@
 package cn.zjw.service.impl;
 
+import cn.zjw.common.cache.CacheClient;
 import cn.zjw.common.constant.Constants;
-import cn.zjw.common.exception.BusinessException;
-import cn.zjw.common.result.ResultCode;
+
 import cn.zjw.mapper.RestaurantMapper;
 import cn.zjw.mapper.ReviewMapper;
 import cn.zjw.pojo.entity.Restaurant;
@@ -12,7 +12,7 @@ import lombok.extern.slf4j.Slf4j;
 import java.math.BigDecimal;
 
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.data.redis.core.RedisTemplate;
+
 import org.springframework.stereotype.Service;
 
 @Service
@@ -24,8 +24,9 @@ public class RatingUpdateServiceImpl implements RatingUpdateService {
     private ReviewMapper reviewMapper;
     @Autowired
     private RestaurantMapper restaurantMapper;
+
     @Autowired
-    private RedisTemplate<String, Object> redisTemplate;
+    private CacheClient cacheClient;
     /**
      * 更新餐厅评分
      * 计算餐厅的平均评分，并更新到餐厅表
@@ -54,8 +55,7 @@ public class RatingUpdateServiceImpl implements RatingUpdateService {
         restaurantMapper.updateById(restaurant);
 
         // 4. 删除缓存
-        redisTemplate.delete(Constants.REDIS_RESTAURANT_KEY + restaurantId);
-
+        cacheClient.delete(Constants.REDIS_RESTAURANT_KEY + restaurantId);
         log.info("餐厅评分更新成功: restaurantId={}, newRating={}", restaurantId, avgRating);
     }
 

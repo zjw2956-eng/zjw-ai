@@ -30,7 +30,13 @@
         <java.version>17</java.version>
     </properties>
     <dependencies>
-      <!-- RabbitMQ -->
+        <!-- redission依赖 -->
+        <dependency>
+            <groupId>org.redisson</groupId>
+            <artifactId>redisson-spring-boot-starter</artifactId>
+            <version>3.23.1</version>
+        </dependency>
+        <!-- RabbitMQ -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-amqp</artifactId>
@@ -48,7 +54,7 @@
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-webflux</artifactId>
         </dependency>
-        
+
         <!-- LangChain4j 核心（@AiService、@Tool、RAG 等注解支持） -->
         <dependency>
             <groupId>dev.langchain4j</groupId>
@@ -86,6 +92,11 @@
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-actuator</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-registry-prometheus</artifactId>
         </dependency>
 
         <!-- redis依赖-->
@@ -158,7 +169,7 @@
             <artifactId>hutool-all</artifactId>
             <version>5.8.25</version>
         </dependency>
-        
+
         <!-- BCrypt 密码加密依赖（仅保留加密库，不引入 Spring Security 全套拦截） -->
         <dependency>
             <groupId>org.springframework.security</groupId>

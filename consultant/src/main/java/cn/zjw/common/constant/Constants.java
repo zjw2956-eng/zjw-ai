@@ -22,8 +22,14 @@ public class Constants {
     public static final String REDIS_REVIEW_DETAIL = "review:detail:";
     //订单详情缓存键
     public static final String REDIS_ORDER_DETAIL = "order:detail:";
+
     //用户token缓存键
     public static final String REDIS_USER_TOKEN = "user:token:";
+    //用户信息缓存键
+    public static final String  REDIS_USER_INFO_KEY = "user:info:";
+    //用户信息缓存过期时间，30分钟
+    public static final Long REDIS_USER_INFO_EXPIRE_TIME = 30 * 60L;
+
     //餐厅信息缓存键
     public static final String REDIS_RESTAURANT_KEY = "restaurant:info:";
     //防止缓存穿透的空值的过期时间,2分钟
@@ -37,6 +43,14 @@ public class Constants {
 
     //订单号前缀
     public static final String ORDER_ID_PREFIX = "ORDER";
+    
+    // 预热/防击穿锁 Key 前缀
+    // 餐厅锁键
+    public static final String REDIS_LOCK_RESTAURANT_KEY = "lock:restaurant:";
+    //餐厅摘要锁键
+    public static final String REDIS_LOCK_RESTAURANT_SUMMARY_KEY = "lock:restaurant:summary:";
+    // 用户锁键
+    public static final String REDIS_LOCK_USER_KEY = "lock:user:";
 
     //Redission锁键值对常量
     //订单号生成器
@@ -44,5 +58,8 @@ public class Constants {
     //订单号序列
     public static final String REDIS_ORDER_NO_SEQ = "order:seq:";
 
+
+    //过期时间随机值
+    public static final int RANDOM_SECONDS = 10;
 
 }

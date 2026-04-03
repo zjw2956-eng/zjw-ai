@@ -10,6 +10,8 @@ import cn.hutool.core.util.PhoneUtil;
 import cn.hutool.core.util.RandomUtil;
 import cn.hutool.json.JSONUtil;
 import org.springframework.stereotype.Service;
+
+import cn.zjw.common.cache.CacheClient;
 import cn.zjw.common.constant.Constants;
 import cn.zjw.pojo.dto.OrderDTO;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -48,197 +50,200 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, OrderInfo> implem
     private OrderMapper orderMapper;
     @Autowired
     private RestaurantMapper restaurantMapper;
-    @Autowired
-    private StringRedisTemplate redisTemplate;
 
     @Autowired
     private OrderNoGenerator orderNoGenerator;
 
     @Autowired
-    private StringRedisTemplate stringRedisTemplate;
+    private CacheClient cacheClient;
+
+
     // TODO: [RabbitMQ] 集成后需加 @Transactional，配合发布者确认机制保证消息可靠性
     // TODO: [幂等性] 在 orderMapper.insert() 前加幂等校验，防止用户重复提交
-    //   方案：Redis SETNX 检查 key: idempotent:order:{userId}:{idempotentToken}
-    //   存在 → 已处理，直接返回；不存在 → 写入并继续
-    //   兜底：order_info 表对 (user_id, restaurant_id, reservation_time) 加唯一索引
+    // 方案：Redis SETNX 检查 key: idempotent:order:{userId}:{idempotentToken}
+    // 存在 → 已处理，直接返回；不存在 → 写入并继续
+    // 兜底：order_info 表对 (user_id, restaurant_id, reservation_time) 加唯一索引
     @Override
-    public void createOrder(OrderDTO dto){
+    public void createOrder(OrderDTO dto) {
         Restaurant restaurant = restaurantMapper.selectById(dto.getRestaurantId());
         if (restaurant == null) {
-            throw new BusinessException(ResultCode.NOT_FOUND,"餐厅不存在");
+            throw new BusinessException(ResultCode.NOT_FOUND, "餐厅不存在");
         }
         // 检查餐厅是否正常
         if (restaurant.getStatus() != Constants.RESTAURANT_STATUS_NORMAL) {
-            throw new BusinessException(ResultCode.BAD_REQUEST,"餐厅休息中");
+            throw new BusinessException(ResultCode.BAD_REQUEST, "餐厅休息中");
         }
-        if(!PhoneUtil.isMobile(dto.getContactPhone())){
-            throw new BusinessException(ResultCode.BAD_REQUEST,"联系电话格式错误");
+        if (!PhoneUtil.isMobile(dto.getContactPhone())) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "联系电话格式错误");
         }
-        
-        OrderInfo orderInfo=new OrderInfo();
-        //用户上下文取用户ID
-        Long userId=UserContext.getCurrentUserId();
-        orderInfo.setUserId(userId);  // ✅ 设置用户ID
-        //生成订单号
+
+        OrderInfo orderInfo = new OrderInfo();
+        // 用户上下文取用户ID
+        Long userId = UserContext.getCurrentUserId();
+        orderInfo.setUserId(userId); // ✅ 设置用户ID
+        // 生成订单号
         String orderNo = orderNoGenerator.generateOrderNo();
         orderInfo.setOrderNo(orderNo);
-        //设置状态为待确认
+        // 设置状态为待确认
         orderInfo.setStatus(OrderStatus.PENDING.getCode());
 
         BeanUtil.copyProperties(dto, orderInfo);
         orderMapper.insert(orderInfo); // ← 写库成功
         // TODO: [RabbitMQ] 发送订单创建通知消息
-        //   交换机: order.exchange
-        //   routing key: order.create
-        //   消息体: { orderNo, userId, restaurantId, reservationTime }
-        //   消费者: 发送短信/推送通知用户和餐厅
+        // 交换机: order.exchange
+        // routing key: order.create
+        // 消息体: { orderNo, userId, restaurantId, reservationTime }
+        // 消费者: 发送短信/推送通知用户和餐厅
         // TODO: [RabbitMQ] 发送订单超时延迟消息（30分钟后触发自动取消）
-        //   交换机: order.delay.exchange（需配置死信队列 DLX 实现延迟）
-        //   routing key: order.timeout
-        //   消息体: { orderNo }
-        //   消费者: 检查订单状态，若仍为 PENDING 则更新为 CANCELLED
+        // 交换机: order.delay.exchange（需配置死信队列 DLX 实现延迟）
+        // routing key: order.timeout
+        // 消息体: { orderNo }
+        // 消费者: 检查订单状态，若仍为 PENDING 则更新为 CANCELLED
     }
 
     @Override
-    public Page<OrderVO> listOrders(Integer current, Integer pageSize,Integer status){
-        LambdaQueryWrapper<OrderInfo> wrapper=new LambdaQueryWrapper<>();
-        //只查询当前用户自己的订单
-        Long userId=UserContext.getCurrentUserId();
-        wrapper.eq(OrderInfo::getUserId,userId);
-        
-        if(status != null){
-            wrapper.eq(OrderInfo::getStatus,status);
-        }
-        wrapper.eq(OrderInfo::getIsDeleted,0).orderByDesc(OrderInfo::getUpdateTime);
-        Page<OrderInfo> Firstpage=this.page(new Page<>(current,pageSize),wrapper);
+    public Page<OrderVO> listOrders(Integer current, Integer pageSize, Integer status) {
+        LambdaQueryWrapper<OrderInfo> wrapper = new LambdaQueryWrapper<>();
+        // 只查询当前用户自己的订单
+        Long userId = UserContext.getCurrentUserId();
+        wrapper.eq(OrderInfo::getUserId, userId);
 
-        //转换为VO列表VO
-        List<OrderInfo> orderList=Firstpage.getRecords();
-        //空分页判断
+        if (status != null) {
+            wrapper.eq(OrderInfo::getStatus, status);
+        }
+        wrapper.eq(OrderInfo::getIsDeleted, 0).orderByDesc(OrderInfo::getUpdateTime);
+        Page<OrderInfo> Firstpage = this.page(new Page<>(current, pageSize), wrapper);
+
+        // 转换为VO列表VO
+        List<OrderInfo> orderList = Firstpage.getRecords();
+        // 空分页判断
         if (orderList.isEmpty()) {
             Page<OrderVO> emptyPage = new Page<>(Firstpage.getCurrent(), Firstpage.getSize(), 0);
             emptyPage.setRecords(Collections.emptyList());
             return emptyPage;
         }
-        Set<Long> restaurantIds=orderList.stream()
+        Set<Long> restaurantIds = orderList.stream()
                 .map(OrderInfo::getRestaurantId)
                 .collect(Collectors.toSet());
-        //批量查询餐厅信息
-        List<Restaurant> restaurants=restaurantMapper.selectBatchIds(restaurantIds);
+        // 批量查询餐厅信息
+        List<Restaurant> restaurants = restaurantMapper.selectBatchIds(restaurantIds);
         // 构建 restaurantId → Restaurant 的 Map
         Map<Long, Restaurant> restaurantMap = restaurants.stream()
                 .collect(Collectors.toMap(Restaurant::getId, r -> r));
-        List<OrderVO> voList= orderList.stream()
-                            .map(order->{
-                                OrderVO vo=BeanUtil.copyProperties(order,OrderVO.class);
-                                //设置餐厅信息
-                                Restaurant restaurant=restaurantMap.get(order.getRestaurantId());
-                                if(restaurant!=null){
-                                    vo.setRestaurantId(restaurant.getId());
-                                    vo.setRestaurantName(restaurant.getName());
-                                }
-                                //设置状态描述
-                                vo.setStatus(order.getStatus());
-                                vo.setStatusDesc(OrderStatus.getDescByCode(order.getStatus()));
+        List<OrderVO> voList = orderList.stream()
+                .map(order -> {
+                    OrderVO vo = BeanUtil.copyProperties(order, OrderVO.class);
+                    // 设置餐厅信息
+                    Restaurant restaurant = restaurantMap.get(order.getRestaurantId());
+                    if (restaurant != null) {
+                        vo.setRestaurantId(restaurant.getId());
+                        vo.setRestaurantName(restaurant.getName());
+                    }
+                    // 设置状态描述
+                    vo.setStatus(order.getStatus());
+                    vo.setStatusDesc(OrderStatus.getDescByCode(order.getStatus()));
 
-                                return vo;
-                            })
-                            .collect(Collectors.toList());
+                    return vo;
+                })
+                .collect(Collectors.toList());
 
-        Page<OrderVO> resultPage=new Page<>(
+        Page<OrderVO> resultPage = new Page<>(
                 Firstpage.getCurrent(),
                 Firstpage.getSize(),
-                Firstpage.getTotal()
-        );
+                Firstpage.getTotal());
         resultPage.setRecords(voList);
-        
+
         return resultPage;
     }
 
     @Override
-    public OrderVO getOrderDetail(String orderNo){
-        Long userId=UserContext.getCurrentUserId();
-        //查询缓存
-        String json=redisTemplate.opsForValue().get(Constants.REDIS_ORDER_DETAIL+userId+":"+orderNo);
-        if(json!=null){
-            if (json.isEmpty()) {//缓存中为空字符串，返回null
-                return null;
-            }
-            return JSONUtil.toBean(json,OrderVO.class);
-        }
+    public OrderVO getOrderDetail(String orderNo) {
+        Long userId = UserContext.getCurrentUserId();
+        return cacheClient.queryWithPassThrough(
+            Constants.REDIS_ORDER_DETAIL + userId + ":",
+            orderNo,
+            OrderVO.class,
+            this::buildOrderVO,
+            Constants.REDIS_EXPIRE_TIME,
+            Constants.REDIS_EMPTY_KEY_EXPIRE_TIME,
+            "order"
+        );
+    }
 
-        //查询数据库
-        LambdaQueryWrapper<OrderInfo> wrapper=new LambdaQueryWrapper<>();
-        wrapper.eq(OrderInfo::getOrderNo,orderNo);
-        OrderInfo orderInfo=orderMapper.selectOne(wrapper);
-        if (orderInfo==null) {
-            //缓存中没有，返回null
-            log.warn("订单不存在，orderNo={}",orderNo);
-            //设置缓存过期时间为2分钟,防止缓存穿透
-            redisTemplate.opsForValue().set(Constants.REDIS_ORDER_DETAIL+userId+ ":"+orderNo,"",Constants.REDIS_EMPTY_KEY_EXPIRE_TIME, TimeUnit.SECONDS);
+    /**
+     * 构造OrderVO
+     * @param orderInfo
+     * @return
+     */
+    private OrderVO buildOrderVO(String orderNo){
+        Long userId = UserContext.getCurrentUserId();
+        // 查询数据库
+        LambdaQueryWrapper<OrderInfo> wrapper = new LambdaQueryWrapper<>();
+        wrapper.eq(OrderInfo::getOrderNo, orderNo);
+        OrderInfo orderInfo = orderMapper.selectOne(wrapper);
+        if (orderInfo == null) {
+            log.warn("订单不存在，orderNo={}", orderNo);
             return null;
         }
         if (!orderInfo.getUserId().equals(userId)) {
-            throw new BusinessException(ResultCode.FORBIDDEN,"订单不属于当前用户，无权查看");
+            throw new BusinessException(ResultCode.FORBIDDEN, "订单不属于当前用户，无权查看");
         }
-        OrderVO orderVO=new OrderVO();
+        OrderVO orderVO = new OrderVO();
         BeanUtil.copyProperties(orderInfo, orderVO);
         orderVO.setStatusDesc(OrderStatus.getDescByCode(orderInfo.getStatus()));
-        //餐厅信息
-        Restaurant restaurant=restaurantMapper.selectById(orderInfo.getRestaurantId());
-        if(restaurant!=null){
+        // 餐厅信息
+        Restaurant restaurant = restaurantMapper.selectById(orderInfo.getRestaurantId());
+        if (restaurant != null) {
             orderVO.setRestaurantId(restaurant.getId());
             orderVO.setRestaurantName(restaurant.getName());
         }
-        //缓存订单详情,过期时间为72小时
-        redisTemplate.opsForValue().set(Constants.REDIS_ORDER_DETAIL+userId+ ":"+orderNo,JSONUtil.toJsonStr(orderVO),Constants.REDIS_EXPIRE_TIME, TimeUnit.SECONDS);
         return orderVO;
     }
 
     @Override
     @Transactional(rollbackFor = Exception.class)
-    public void cancelOrder(String orderNo){
-        Long userId=UserContext.getCurrentUserId();
-        LambdaQueryWrapper<OrderInfo> wrapper=new LambdaQueryWrapper<>();
-        wrapper.eq(OrderInfo::getIsDeleted,0).eq(OrderInfo::getOrderNo,orderNo);
-        //根据订单号查询订单
-        OrderInfo orderInfo=orderMapper.selectOne(wrapper);
-        //如果订单不存在，返回错误
-        if(orderInfo==null){
-            throw new BusinessException(ResultCode.NOT_FOUND,"订单不存在");
+    public void cancelOrder(String orderNo) {
+        Long userId = UserContext.getCurrentUserId();
+        LambdaQueryWrapper<OrderInfo> wrapper = new LambdaQueryWrapper<>();
+        wrapper.eq(OrderInfo::getIsDeleted, 0).eq(OrderInfo::getOrderNo, orderNo);
+        // 根据订单号查询订单
+        OrderInfo orderInfo = orderMapper.selectOne(wrapper);
+        // 如果订单不存在，返回错误
+        if (orderInfo == null) {
+            throw new BusinessException(ResultCode.NOT_FOUND, "订单不存在");
         }
-        //校验是否为当前用户
+        // 校验是否为当前用户
         if (!userId.equals(orderInfo.getUserId())) {
-            throw new BusinessException(ResultCode.FORBIDDEN,"订单不属于当前用户，无权取消");
+            throw new BusinessException(ResultCode.FORBIDDEN, "订单不属于当前用户，无权取消");
         }
-        //校验订单状态
+        // 校验订单状态
         if (!orderInfo.getStatus().equals(OrderStatus.PENDING.getCode())) {
-            throw new BusinessException(ResultCode.BAD_REQUEST,"当前订单状态不支持取消");
+            throw new BusinessException(ResultCode.BAD_REQUEST, "当前订单状态不支持取消");
         }
-        //更新订单状态
+        // 更新订单状态
         orderInfo.setStatus(OrderStatus.CANCELLED.getCode());
 
-        //更新订单
+        // 更新订单
         orderMapper.updateById(orderInfo);
 
-        //删除缓存
-        redisTemplate.delete(Constants.REDIS_ORDER_DETAIL+userId+":"+orderNo);
+        // 删除缓存
+        cacheClient.delete(Constants.REDIS_ORDER_DETAIL + userId + ":" + orderNo);
         // TODO: [RabbitMQ] 取消成功后发送通知消息，告知用户订单已取消
-        //   交换机: order.exchange，routing key: order.cancel
-        //   消息体: { orderNo, userId }
+        // 交换机: order.exchange，routing key: order.cancel
+        // 消息体: { orderNo, userId }
     }
 
     @Override
     public Map<String, Integer> getUserPreferredCategories(Long userId) {
-        List<Map<String,Object>> list=orderMapper.selectUserPreferredCategories(userId);
-        if(list.isEmpty()){
+        List<Map<String, Object>> list = orderMapper.selectUserPreferredCategories(userId);
+        if (list.isEmpty()) {
             return Collections.emptyMap();
         }
         Map<String, Integer> result = new HashMap<>();
-        for(Map<String,Object> map:list){
-            String category=(String)map.get("category");
-            Integer count=(Integer)map.get("count");
-            result.put(category,count);
+        for (Map<String, Object> map : list) {
+            String category = (String) map.get("category");
+            Integer count = (Integer) map.get("count");
+            result.put(category, count);
         }
         return result;
     }
