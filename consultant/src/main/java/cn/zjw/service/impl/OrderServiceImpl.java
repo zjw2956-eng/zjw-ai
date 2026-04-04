@@ -15,6 +15,7 @@ import cn.zjw.common.cache.CacheClient;
 import cn.zjw.common.constant.Constants;
 import cn.zjw.pojo.dto.OrderDTO;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.serializer.StringRedisSerializer;
 
@@ -25,6 +26,7 @@ import cn.hutool.core.bean.BeanUtil;
 import cn.zjw.common.enums.OrderStatus;
 import cn.zjw.pojo.entity.Restaurant;
 import cn.zjw.mapper.RestaurantMapper;
+import cn.zjw.mq.event.OrderCreatedEvent;
 import cn.zjw.pojo.vo.OrderVO;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import java.util.stream.Collectors;
@@ -57,13 +59,17 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, OrderInfo> implem
     @Autowired
     private CacheClient cacheClient;
 
+    @Autowired
+    private ApplicationEventPublisher eventPublisher;
 
-    // TODO: [RabbitMQ] 集成后需加 @Transactional，配合发布者确认机制保证消息可靠性
-    // TODO: [幂等性] 在 orderMapper.insert() 前加幂等校验，防止用户重复提交
+
+    // [RabbitMQ] 集成后需加 @Transactional，配合发布者确认机制保证消息可靠性
+    // [幂等性] 在 orderMapper.insert() 前加幂等校验，防止用户重复提交
     // 方案：Redis SETNX 检查 key: idempotent:order:{userId}:{idempotentToken}
     // 存在 → 已处理，直接返回；不存在 → 写入并继续
     // 兜底：order_info 表对 (user_id, restaurant_id, reservation_time) 加唯一索引
     @Override
+    @Transactional
     public void createOrder(OrderDTO dto) {
         Restaurant restaurant = restaurantMapper.selectById(dto.getRestaurantId());
         if (restaurant == null) {
@@ -89,16 +95,9 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, OrderInfo> implem
 
         BeanUtil.copyProperties(dto, orderInfo);
         orderMapper.insert(orderInfo); // ← 写库成功
-        // TODO: [RabbitMQ] 发送订单创建通知消息
-        // 交换机: order.exchange
-        // routing key: order.create
-        // 消息体: { orderNo, userId, restaurantId, reservationTime }
-        // 消费者: 发送短信/推送通知用户和餐厅
-        // TODO: [RabbitMQ] 发送订单超时延迟消息（30分钟后触发自动取消）
-        // 交换机: order.delay.exchange（需配置死信队列 DLX 实现延迟）
-        // routing key: order.timeout
-        // 消息体: { orderNo }
-        // 消费者: 检查订单状态，若仍为 PENDING 则更新为 CANCELLED
+        // ==================== 发送订单确认超时延迟消息 ====================
+        eventPublisher.publishEvent(new OrderCreatedEvent(this, orderNo));
+        log.info("订单创建成功，orderNo={}", orderNo);
     }
 
     @Override
