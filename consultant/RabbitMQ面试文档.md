@@ -1,455 +1,432 @@
-# RabbitMQ 消息确认与死信队列 - 项目实战总结
+# RabbitMQ 面试文档（结合当前项目实战）
 
-> 基于智能美食推荐系统中的 **AI 评论审核** 异步处理场景
-
----
-
-## 一、项目背景与业务场景
-
-### 为什么用 RabbitMQ？
-
-**业务痛点**：用户提交餐厅评论后，需要调用 AI 大模型（通义千问）进行内容审核，但 AI 调用耗时较长（1~3秒），如果同步处理会导致用户等待时间过长。
-
-**解决方案**：
-- 用户提交评论 → 立即返回"审核中"
-- 后台发送消息到 RabbitMQ
-- 消费者异步调用 AI 审核
-- 审核完成后更新数据库状态
-
-**技术选型理由**：
-- RabbitMQ 支持消息持久化、死信队列、延迟重试等可靠性机制
-- Spring AMQP 集成简单，开箱即用
+> 项目：智能美食推荐与餐厅管理系统  
+> 目标：这份文档用于面试时说明我在项目里为什么引入 RabbitMQ、具体怎么落地、做了哪些优化、为什么没有采用某些替代方案。
 
 ---
 
-## 二、消息确认机制（Acknowledge）
+# 一、项目里 RabbitMQ 解决了什么问题
 
-### 2.1 三种确认模式对比
+我在当前项目里，RabbitMQ 主要解决了两类问题：
 
-| 模式 | 触发时机 | 适用场景 | 风险 |
-|------|---------|---------|------|
-| **NONE** | 消息发出即确认 | 日志收集、非关键通知 | 消息可能丢失 |
-| **AUTO**（默认） | 方法正常返回 → ACK<br>方法抛异常 → NACK | 大部分业务场景 | 需保证幂等性 |
-| **MANUAL** | 手动调用 `channel.basicAck()` | 金融支付、库存扣减 | 代码复杂度高 |
+1. **AI 评价审核异步化**  
+   用户提交评价后，不直接同步调用大模型审核，而是先保存评价为 `PENDING`，再异步投递消息给审核消费者，后台调用 AI 审核，最后更新评价状态。
 
-### 2.2 项目中的实现（AUTO 模式）
+2. **订单确认超时自动取消**  
+   用户下单后如果长时间不确认，需要自动取消订单。我这里使用 RabbitMQ 的 **TTL + 死信队列** 组合实现延时消息，到期后再由消费者处理取消逻辑。
 
-**配置层面**：未显式配置，使用 Spring AMQP 默认的 AUTO 模式
+此外，项目里还有一条和评价相关的 MQ 链路：
 
-**代码层面**：
-```java
-@RabbitListener(queues = "review.audit.queue")
-public void handleReviewAudit(ReviewAuditMessage message){
-    try {
-        // 1. 调用 AI 审核
-        ReviewAnalysisResult result = reviewAnalysisService.analyzeReview(...);
-        
-        // 2. 更新数据库
-        reviewMapper.updateById(review);
-        
-        // 3. 方法正常返回 → Spring AMQP 自动 ACK → 消息从队列删除
-        
-    } catch (Exception e) {
-        // 4. 抛出异常 → Spring AMQP 自动 NACK → 触发重试机制
-        throw new RuntimeException("AI审核失败", e);
-    }
-}
-```
-
-**关键点**：
-- ✅ **成功路径**：AI 调用成功 → 数据库更新成功 → 方法返回 → 自动 ACK
-- ❌ **失败路径**：任何异常 → 抛出 RuntimeException → 自动 NACK → 重新入队
+3. **评价通过/删除后异步刷新餐厅评分**  
+   评价审核通过，或者已通过评价被删除后，会异步发送“刷新评分”消息，由消费者重新计算餐厅评分，避免在主业务线程里做聚合计算。
 
 ---
 
-## 三、死信队列（Dead Letter Exchange, DLX）
+# 二、当前项目中的 3 条 RabbitMQ 业务链路
 
-### 3.1 什么是死信队列？
+## 1）评价 AI 审核链路
 
-**死信**：无法被正常消费的消息，包括：
-1. 消息被 NACK 且 `requeue=false`
-2. 消息过期（TTL 超时）
-3. 队列满了（达到 max-length）
+### 实现方法
+- 用户提交评价
+- `ReviewServiceImpl.createReview()` 先写库，状态设为 `PENDING`
+- 发布 `ReviewCreatedEvent`
+- `ReviewEventListener.handleReviewCreated()` 在事务提交后发送 `review.audit` 消息
+- `ReviewAuditConsumer` 消费消息，调用 AI 审核
+- 根据结果执行：
+  - `APPROVE`：审核通过
+  - `REJECT`：审核拒绝
+  - `MANUAL_REVIEW`：转人工审核
+- 如果消费多次失败，则进入死信队列，最终标记为 `AI_ERROR`，等待人工处理
 
-**死信队列**：专门存放死信的队列，用于兜底处理或人工介入。
+### 为什么这样做
+因为 AI 调用耗时明显高于普通数据库操作，如果同步审核：
+- 用户提交评价会变慢
+- 容易受外部模型接口波动影响
+- 主业务线程阻塞，用户体验差
 
-### 3.2 项目中的 DLX 架构
+改成异步后：
+- 用户请求更快返回
+- AI 服务波动不会直接拖慢前台接口
+- 审核逻辑和主链路解耦
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│                      正常业务流程                            │
-└─────────────────────────────────────────────────────────────┘
-                              ↓
-        生产者发送消息到 review.exchange
-                              ↓
-                    路由键：review.audit
-                              ↓
-                  ┌─────────────────────┐
-                  │ review.audit.queue  │ ← 配置了 DLX 参数
-                  └─────────────────────┘
-                              ↓
-                  消费者处理（AUTO 模式）
-                              ↓
-                    ┌─────────┴─────────┐
-                    │                   │
-                 成功 ACK            失败 NACK
-                    │                   │
-                消息删除          Spring AMQP 重试 3 次
-                                        │
-                                  3 次全部失败
-                                        ↓
-┌─────────────────────────────────────────────────────────────┐
-│                      死信流程                                │
-└─────────────────────────────────────────────────────────────┘
-                                        ↓
-                消息路由到 review.dlx.exchange
-                                        ↓
-                    路由键：review.audit.dlx
-                                        ↓
-                  ┌─────────────────────────┐
-                  │ review.audit.dlx.queue  │
-                  └─────────────────────────┘
-                                        ↓
-                  handleFailedReview() 兜底处理
-                                        ↓
-                  标记为 AI_ERROR + 人工审核
-```
+### 优点
+- 主链路响应快
+- 异步解耦明显
+- 支持失败重试和死信兜底
+- 更适合接外部 AI 服务
 
-### 3.3 配置代码详解
+### 缺点
+- 业务最终一致，而不是强一致
+- 系统复杂度高于同步方案
+- 需要额外考虑幂等、重试、死信
 
-**步骤 1：定义死信交换机和死信队列**
-```java
-// 死信交换机
-@Bean
-public DirectExchange reviewDlxExchange(){
-    return new DirectExchange("review.dlx.exchange");
-}
+### 可考虑的扩展方案
+#### 方案 A：同步调用 AI 审核
+**优点**：实现简单，业务直观  
+**为什么不采用**：当前项目 AI 审核是典型慢调用，不适合同步阻塞用户请求。
 
-// 死信队列
-@Bean
-public Queue reviewAuditDlxQueue(){
-    return QueueBuilder.durable("review.audit.dlx.queue").build();
-}
+#### 方案 B：用 Kafka 替代 RabbitMQ
+**优点**：吞吐量更高，适合超大规模日志流  
+**为什么不采用**：当前项目消息量不大，但需要较强的路由、死信、TTL、可靠确认能力，RabbitMQ 更贴合业务。
 
-// 绑定死信队列到死信交换机
-@Bean
-public Binding reviewAuditDlxBinding(){
-    return BindingBuilder
-            .bind(reviewAuditDlxQueue())
-            .to(reviewDlxExchange())
-            .with("review.audit.dlx");
-}
-```
-
-**步骤 2：正常队列配置 DLX 参数**
-```java
-@Bean
-public Queue reviewAuditQueue(){
-    return QueueBuilder.durable("review.audit.queue")
-        // 关键配置：指定死信交换机
-        .withArgument("x-dead-letter-exchange", "review.dlx.exchange")
-        // 关键配置：指定死信路由键
-        .withArgument("x-dead-letter-routing-key", "review.audit.dlx")
-        .build();
-}
-```
-
-**步骤 3：死信队列的消费者（兜底处理）**
-```java
-@RabbitListener(queues = "review.audit.dlx.queue")
-public void handleFailedReview(ReviewAuditMessage message){
-    log.error("AI审核失败，转人工审核,reviewId={}", message.getReviewId());
-    
-    // 降级处理：标记为需要人工审核
-    Review review = new Review();
-    review.setId(message.getReviewId());
-    review.setAiVerdict("AI_ERROR");
-    review.setStatus(ReviewStatus.PENDING.getCode()); // 0-待审核
-    reviewMapper.updateById(review);
-}
-```
+#### 方案 C：引入 Outbox 模式
+**优点**：数据库事务与消息发送一致性更强  
+**为什么当前不采用**：实现成本更高。当前项目已经使用 `@TransactionalEventListener(AFTER_COMMIT)`，对面试项目来说复杂度和收益比较平衡。
 
 ---
 
-## 四、完整消息流转图
+## 2）订单确认超时自动取消链路（延时队列）
 
-```
-用户提交评论
-    ↓
-ReviewServiceImpl.addReview()
-    ↓
-rabbitTemplate.convertAndSend("review.exchange", "review.audit", message)
-    ↓
-消息进入 review.audit.queue
-    ↓
-ReviewAuditConsumer.handleReviewAudit() 消费
-    ↓
-    ├─ 成功：AI 返回 APPROVE/REJECT/MANUAL_REVIEW
-    │         ↓
-    │    更新数据库 status 字段
-    │         ↓
-    │    方法正常返回 → 自动 ACK → 消息删除 ✅
-    │
-    └─ 失败：AI 调用超时/网络异常/模型错误
-              ↓
-         throw RuntimeException → 自动 NACK
-              ↓
-         Spring AMQP 重试（默认 3 次）
-              ↓
-         3 次全败 → 消息成为死信
-              ↓
-         路由到 review.dlx.exchange
-              ↓
-         进入 review.audit.dlx.queue
-              ↓
-         handleFailedReview() 兜底处理
-              ↓
-         标记为 AI_ERROR + 人工审核 ⚠️
-```
+### 实现方法
+我这里使用的是 **RabbitMQ TTL + 死信队列** 实现延时消息，不是插件方案。
 
----
+具体流程：
+- 订单创建成功后，发布 `OrderCreatedEvent`
+- `OrderEventListener.handleOrderCreated()` 在事务提交后发送消息到 `order.confirm.timeout.delay.queue`
+- 该队列本身没有消费者，配置了：
+  - `x-message-ttl = 30分钟`
+  - `x-dead-letter-exchange = order.dlx.exchange`
+  - `x-dead-letter-routing-key = order.confirm.timeout`
+- 消息过期后自动进入死信交换机，再路由到 `order.confirm.timeout.queue`
+- `OrderConfirmTimeoutConsumer` 消费这条到期消息
+- 消费时检查订单状态是否仍然是 `PENDING`
+- 如果还是 `PENDING`，则自动取消订单；如果状态已变化，则直接跳过
 
-## 五、面试高频问题与回答模板
+### 为什么这样做
+订单“30 分钟后再处理”是一个标准延时任务场景。RabbitMQ 的 TTL + DLX 方案有几个好处：
+- 不需要额外定时轮询数据库
+- 对应用层几乎透明
+- 可靠性和消息路由都由 MQ 管理
+- 和当前 RabbitMQ 技术栈统一
 
-### Q1：你们项目为什么要用消息队列？
+### 优点
+- 实现简单
+- 可靠性较好
+- 配置即延时，不需要业务线程等待
+- 与当前项目 RabbitMQ 配置统一
 
-**回答要点**：
-1. **业务背景**：AI 审核评论耗时 1~3 秒，同步调用影响用户体验
-2. **解决方案**：异步处理 + 立即返回"审核中"状态
-3. **技术选型**：RabbitMQ 支持消息持久化、死信队列等可靠性机制
+### 缺点
+- 延时精度不是绝对实时，受队列消费和过期转发时机影响
+- 不适合特别大量、特别复杂的多种延时任务
+- TTL + 死信本质上是“伪延时”，不是任意精细调度引擎
 
-### Q2：如何保证消息不丢失？
+### 可考虑的扩展方案
+#### 方案 A：RabbitMQ 延迟插件 `x-delayed-message`
+**优点**：更灵活，单条消息可设置不同延迟时长  
+**为什么不采用**：需要额外安装插件，部署依赖更强。当前项目作为面试项目，优先采用原生能力完成核心业务。
 
-**三层保障**：
-1. **生产者确认**：可配置 `publisher-confirms` 确保消息到达交换机
-2. **消息持久化**：队列和消息都设置为 `durable`
-3. **消费者确认**：使用 AUTO/MANUAL 模式，处理成功才 ACK
+#### 方案 B：Redis ZSet 延时队列
+**优点**：实现灵活，可自行控制扫描和调度  
+**为什么这个项目里 RabbitMQ 这条链路不采用**：订单确认超时本身已经天然适合 TTL + 死信队列；RabbitMQ 原生方案更直观、更适合面试讲解。  
+**补充**：项目里我也确实用了 Redis ZSet，但它用在了另一类业务：**到店后 30 分钟未消费自动取消**，因为那类场景需要基于预约时间做更灵活的二次延迟处理。
 
-**项目实现**：
-- 队列持久化：`QueueBuilder.durable("review.audit.queue")`
-- 消费者 AUTO 确认：处理成功才自动 ACK，失败自动 NACK 重试
-
-### Q3：消息重复消费怎么办？
-
-**原因**：
-- 消费者处理完业务逻辑，但在 ACK 之前宕机
-- RabbitMQ 认为消息未消费，重新投递
-
-**解决方案**：
-1. **业务幂等**：同一条消息处理多次结果一致
-2. **去重表**：Redis/MySQL 记录已处理的消息 ID
-
-**项目实现**：
-- `reviewMapper.updateById(review)` 是覆盖更新，天然幂等
-- 如果是扣库存等操作，需要先查状态再操作
-
-### Q4：死信队列的作用是什么？
-
-**核心作用**：
-1. **兜底处理**：消息多次重试失败后，不能直接丢弃
-2. **人工介入**：转入死信队列后，可以人工排查问题
-3. **降级策略**：AI 审核失败 → 降级为人工审核
-
-**项目实现**：
-- 正常队列配置 DLX 参数
-- 死信队列消费者标记为"AI_ERROR"，等待人工处理
-
-### Q5：AUTO 模式下消息会丢失吗？JVM 崩溃怎么办？
-
-**误区澄清**：很多人以为 AUTO 模式是"消息投递给消费者就立即 ACK"，这是错误的。
-
-Spring AMQP 的三种模式：
-
-| 模式 | 触发时机 | 风险 |
-|---|---|---|
-| `none` | 消息发出就 ACK（真正的投递即确认） | 消息可能丢失 |
-| `auto` | 方法正常返回→ACK，抛异常→NACK | 安全，大多数场景适用 |
-| `manual` | 手动调用 `channel.basicAck/basicNack` | 最安全，代码复杂 |
-
-**AUTO 模式的实际行为**：
-- 消息到达消费者，RabbitMQ 标记为 `unacked`（从队列移出，但尚未确认）
-- Spring AMQP 调用处理方法：成功返回→自动 ACK，抛异常→本地重试→重试耗尽→自动 NACK→进死信
-- **JVM 崩溃？** RabbitMQ 检测到连接断开→自动把所有 `unacked` 消息重新入队
-
-**结论**：AUTO 模式下消息不会丢失，`none` 模式才会丢失。
-
-### Q6：如果 AI 服务长时间不可用怎么办？
-
-**当前问题**：
-- 消息会不断重试→堆积在队列中
-- 死信队列也会堆积大量消息
-
-**优化方案**：
-1. **限流熔断**：接入 Sentinel，AI 服务熔断后直接降级
-2. **延迟队列**：失败后延迟 5 分钟再重试，避免瞬时压力（可选，当前项目暂不需要）
-3. **监控告警**：队列堆积超过阈值时触发告警
-
-### Q7：ConfirmCallback 和 ReturnsCallback 有什么区别？
-
-**两个回调触发场景不同**：
-
-| 回调 | 触发时机 | 说明 |
-|---|---|---|
-| `ConfirmCallback` (ack=true) | 消息成功到达交换机 | 正常流程 |
-| `ConfirmCallback` (ack=false) | 消息**未到达交换机** | 网络故障、Broker 宕机 |
-| `ReturnsCallback` | 消息到了交换机，但**路由不到队列** | routing key 写错、队列未创建 |
-
-**关键点**：
-- ConfirmCallback ack=false：消息连交换机都没到，需要重发
-- ReturnsCallback：消息到了交换机，但交换机找不到匹配的队列
-
-**必须开启 `mandatory=true`**，否则路由失败的消息会被 Broker 直接丢弃。
-
-**项目实现**：
-```java
-rabbitTemplate.setMandatory(true);
-
-// 交换机确认
-rabbitTemplate.setConfirmCallback((correlationData, ack, cause) -> {
-    if (ack) {
-        redisTemplate.delete(Constants.RABBITMQ_CORRELATION_MSG_ID + msgId);
-    } else {
-        handleMessageRetry(msgId, redisKey, rabbitTemplate);
-    }
-});
-
-// 路由失败回退
-rabbitTemplate.setReturnsCallback(returned -> {
-    handleMessageRetry(msgId, redisKey, rabbitTemplate);
-});
-```
-
-### Q8：如何保证生产者消息不丢失？Redis 在这里起什么作用？
-
-**问题背景**：ConfirmCallback 是异步回调，如果 Broker 宕机，回调可能永远不触发，消息就丢了。
-
-**方案：发送前持久化到 Redis**
-
-```
-生产者发送流程：
-1. 生成唯一 msgId
-2. 将消息体和重试次数存入 Redis Hash（TTL = 10分钟）
-   key: mq:msgId:{msgId}  →  {message: \"...\", retryCount: 0}
-3. 发送消息到 RabbitMQ，带上 CorrelationData(msgId)
-4. ConfirmCallback 回调：
-   - ack=true  → 删除 Redis 缓存（消息已安全到达）
-   - ack=false → 从 Redis 取出消息，retryCount++，重新发送
-5. 重试超过 MAX_RETRY_COUNT → 删除缓存，记录告警
-```
-
-**为什么用 Redis 而不直接在 ConfirmCallback 里重发**：
-- ConfirmCallback 里拿不到原始消息对象，只有 correlationData
-- Redis 作为消息的临时备份，确认成功后删除，失败时可以取出重发
-
-**注意点**：
-- Redis TTL 不要设太长（5~10分钟），避免内存堆积
-- 重试计数从 Redis 取出时注意类型：Jackson 会把整数反序列化为 `Long`，不能强转 `Integer`
-
-### Q9：事务与 MQ 消息发送的顺序问题怎么处理？
-
-**问题场景**：
-```java
-@Transactional
-public void createReview() {
-    reviewMapper.insert(review);       // 写数据库
-    rabbitTemplate.convertAndSend();   // 发 MQ
-}
-```
-
-**两种风险**：
-1. insert 成功，convertAndSend 抛异常 → 事务回滚，数据库无数据，但消息可能已发出
-2. convertAndSend 成功，事务后续代码抛异常 → 事务回滚，消息已发出但数据库没记录
-
-**解决方案：`@TransactionalEventListener`**
-
-在事务提交后再发消息：
-
-```java
-// 1. Service 里只写库、发布事件
-@Transactional
-public void createReview() {
-    reviewMapper.insert(review);
-    eventPublisher.publishEvent(new ReviewCreatedEvent(message, msgId));
-}
-
-// 2. 监听器在事务提交后才发 MQ
-@TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
-public void handleReviewCreated(ReviewCreatedEvent event) {
-    rabbitTemplate.convertAndSend("review.exchange", "review.audit", 
-        event.getMessage(), new CorrelationData(event.getMsgId()));
-}
-```
-
-**核心原理**：`AFTER_COMMIT` 阶段在事务成功提交后才触发，事务回滚则事件不触发。
+#### 方案 C：数据库定时扫描
+**优点**：实现最直接  
+**为什么不采用**：高频扫描数据库会带来无效查询和额外压力，可扩展性差。
 
 ---
 
-## 六、项目亮点总结
+## 3）评价通过/删除后异步刷新餐厅评分链路
 
-### 技术亮点
-1. ✅ **异步解耦**：AI 审核与用户请求解耦，提升响应速度
-2. ✅ **消费者可靠性**：AUTO 模式 + 死信队列 + 重试机制，JVM 崩溃也不丢消息
-3. ✅ **生产者可靠性**：Redis 备份 + ConfirmCallback/ReturnsCallback 双重确认
-4. ✅ **事务安全**：@TransactionalEventListener 保证事务提交后再发 MQ
-5. ✅ **降级策略**：AI 失败自动转人工审核，保证业务连续性
+### 实现方法
+- 审核通过时，`approveReview()` 不直接发 MQ，而是发布 `ReviewRatingRefreshEvent`
+- 删除已通过评价时，`deleteReview()` 也发布同一个事件
+- `ReviewEventListener.handleReviewRatingRefresh()` 在事务提交后发送 `review.rating.refresh` 消息到 `review.rating.refresh.queue`
+- `ReviewRatingUpdateConsumer` 消费消息，调用 `ratingUpdateService.updateRestaurantRating(restaurantId)` 重新计算评分
 
-### 可优化点（面试加分项）
-1. 🔧 **幂等性增强**：引入消息去重表（Redis）
-2. 🔧 **延迟重试**：使用延迟队列避免瞬时重试
-3. 🔧 **监控告警**：接入 Prometheus + Grafana 监控队列堆积
+### 为什么这样做
+餐厅评分刷新属于聚合计算，不适合放在主链路同步执行。
+而且“审核通过”和“删除已通过评价”都需要刷新评分，把它统一抽象成 **rating refresh 事件** 更合理。
 
----
+### 优点
+- 解耦评分计算和主业务逻辑
+- 命名更贴近业务本质
+- 审核通过、删除评价都复用同一条消息链路
 
-## 七、关键代码速查
+### 缺点
+- 评分更新是最终一致
+- 如果消息失败，评分会短暂滞后
 
-### 发送消息（生产者）
-```java
-// ReviewServiceImpl.java
-rabbitTemplate.convertAndSend(
-    "review.exchange",      // 交换机
-    "review.audit",         // 路由键
-    new ReviewAuditMessage(reviewId, content, rating)
-);
-```
+### 可考虑的扩展方案
+#### 方案 A：每次直接同步重算评分
+**优点**：结果立即一致  
+**为什么不采用**：会增加主业务接口耗时，随着评价数量增长，聚合计算压力更明显。
 
-### 消费消息（消费者）
-```java
-// ReviewAuditConsumer.java
-@RabbitListener(queues = "review.audit.queue")
-public void handleReviewAudit(ReviewAuditMessage message){
-    try {
-        // 业务处理
-    } catch (Exception e) {
-        throw new RuntimeException("AI审核失败", e); // 触发 NACK
-    }
-}
-```
-
-### 配置死信队列
-```java
-// RabbitMQConfig.java
-@Bean
-public Queue reviewAuditQueue(){
-    return QueueBuilder.durable("review.audit.queue")
-        .withArgument("x-dead-letter-exchange", "review.dlx.exchange")
-        .withArgument("x-dead-letter-routing-key", "review.audit.dlx")
-        .build();
-}
-```
+#### 方案 B：只做增量更新平均分
+**优点**：性能高  
+**为什么不采用**：删除评价、审核回退等场景会使增量逻辑更复杂，容易出错。当前项目直接重算，逻辑更稳、更适合面试说明。
 
 ---
 
-## 八、面试话术模板
+# 三、项目里 RabbitMQ 的核心优化措施
 
-**开场**：
-> "我们项目中用 RabbitMQ 实现了 AI 评论审核的异步处理。用户提交评论后，系统立即返回'审核中'状态，后台通过消息队列异步调用通义千问进行内容审核。"
+这部分是面试重点，建议重点讲。
 
-**深入技术**：
-> "为了保证消息可靠性，我们做了生产者和消费者两端的保障。消费者端使用 Spring AMQP 的 AUTO 确认模式，处理成功自动 ACK，失败自动 NACK 并重试 3 次，重试失败后路由到死信队列兜底。生产者端使用 ConfirmCallback 和 ReturnsCallback 双重确认机制，发送前先把消息备份到 Redis，确认成功后删除，失败则从 Redis 取出重试。另外，为了避免事务回滚导致的消息不一致，我们用 @TransactionalEventListener 在事务提交后才发送 MQ。"
+## 1）事务提交后再发消息
 
-**亮点总结**：
-> "这套方案覆盖了消息队列的完整生命周期：生产者可靠性（Redis备份+确认回调）、消费者可靠性（AUTO模式+死信队列）、事务安全（事件监听器），以及降级策略（AI失败转人工），是一个比较完整的企业级消息队列实践。"
+### 做法
+我没有在事务方法里直接发送消息，而是：
+- 先写数据库
+- 发布 Spring 事件
+- 用 `@TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)` 在事务提交后再发 MQ
+
+### 为什么这样做
+避免出现：
+- 数据库回滚了，但消息已经发出
+- 消费者收到了消息，却查不到数据库里的有效数据
+
+### 优点
+- 保证业务数据和消息发送时序正确
+- 比“事务里直接发消息”更安全
+
+### 为什么没有上升到 Outbox
+Outbox 更强，但当前项目体量下，`AFTER_COMMIT` 足够应对面试和实际业务复杂度。
 
 ---
 
-**最后提醒**：面试时不要死记硬背，结合自己的理解和项目实际情况灵活表达！
+## 2）生产者可靠性：ConfirmCallback + ReturnsCallback + Redis 临时备份
+
+### 做法
+发送消息前：
+- 生成唯一 `msgId`
+- 把交换机、路由键、消息体、重试次数先写入 Redis
+- 发送消息时带上 `CorrelationData(msgId)`
+
+发送后：
+- `ConfirmCallback`：确认是否到达交换机
+- `ReturnsCallback`：确认是否成功路由到队列
+- 如果失败，则根据 Redis 里的消息元数据重发
+- 超过最大重试次数后，放入失败缓存
+
+### 为什么这样做
+`CorrelationData` 只能标识消息，不能帮我找回原始消息体。  
+所以我用 Redis 作为短期消息元数据备份，确认成功再删除，失败时可以按 `msgId` 重试。
+
+### 优点
+- 生产者侧可靠性更强
+- 交换机失败和路由失败都能处理
+- 重试链路清晰，便于面试阐述
+
+### 缺点
+- 比普通发送多了 Redis 读写开销
+- 代码复杂度上升
+
+### 可考虑的扩展方案
+#### 方案 A：只用 Confirm，不做 Redis 缓存
+**优点**：实现简单  
+**为什么不采用**：回调里拿不到完整原始消息，失败后不方便可靠重发。
+
+#### 方案 B：失败消息直接落库
+**优点**：更适合持久运维和人工排查  
+**为什么当前不采用**：当前项目主要目标是验证可靠投递链路，Redis 足够轻量。
+
+---
+
+## 3）消费幂等：统一消息 ID 去重
+
+### 做法
+我封装了统一的 `MqDedupService`：
+- 发送消息时把 `messageId` 写入消息属性
+- 消费前先提取 `messageId`
+- 用 Redis `SETNX` 标记 `mq:consumed:{msgId}`
+- 如果已存在，说明是重复消息，直接跳过
+- 如果业务执行异常，删除去重标记，允许后续重试
+
+### 为什么这样做
+RabbitMQ 语义本质上是 **at least once**，消息可能因为：
+- 生产者重发
+- 网络抖动
+- 消费异常
+- 连接断开
+而重复投递。  
+所以必须做幂等。
+
+### 优点
+- 三个消费者可复用同一套逻辑
+- 对重复投递有统一防护
+- 面试时好讲：`messageId + Redis SETNX`
+
+### 缺点
+- 依赖 Redis
+- 需要给每条消息显式设置 `messageId`
+
+### 可考虑的扩展方案
+#### 方案 A：数据库去重表
+**优点**：持久性更强  
+**为什么不采用**：吞吐更低，写库成本高。当前项目用 Redis 足够。
+
+#### 方案 B：只依赖业务天然幂等
+**优点**：少一层去重逻辑  
+**为什么不采用**：有些业务天然幂等不够稳，统一去重更安全。
+
+---
+
+## 4）消费端再加一层业务幂等
+
+除了通用消息幂等，我还做了业务层兜底。
+
+### 订单确认超时取消
+消费者不是直接取消，而是先判断订单是否仍然是 `PENDING`。  
+如果已经取消或已确认，就直接跳过。
+
+### 评价审核
+审核通过/拒绝前，先校验评价状态必须还是 `PENDING`。
+
+### 为什么这样做
+这是“**消息幂等 + 业务幂等双保险**”。即便某次消息去重失效，业务状态判断也能兜底。
+
+---
+
+## 5）死信队列兜底
+
+### 做法
+`review.audit.queue` 配置了死信交换机和死信路由：
+- 正常消费多次失败
+- 消息最终进入 `review.audit.dlx.queue`
+- `handleFailedReview()` 做降级处理：标记为 `AI_ERROR`，交给人工审核
+
+### 为什么这样做
+AI 服务是外部依赖，不可能保证 100% 可用。  
+如果没有死信兜底，失败消息可能丢掉，业务就断了。
+
+### 优点
+- 保证失败消息不直接丢失
+- 支持人工介入
+- 是典型的可靠性设计亮点
+
+### 缺点
+- 需要额外维护死信队列
+- 如果异常持续，死信队列会堆积
+
+### 可考虑的扩展方案
+#### 方案 A：失败直接丢弃
+**为什么不采用**：评价审核属于核心业务，不能无声失败。
+
+#### 方案 B：无限重试
+**为什么不采用**：会造成消息堆积，甚至拖垮系统。当前项目采用“有限重试 + 死信兜底”更合理。
+
+---
+
+# 四、项目里“延时队列”我怎么讲
+
+这是面试重点，建议单独讲。
+
+## 1）RabbitMQ 延时队列：订单确认超时自动取消
+
+### 方案
+- 使用 TTL + 死信交换机
+- 延迟队列 `order.confirm.timeout.delay.queue` 不消费
+- 到期自动转发到 `order.confirm.timeout.queue`
+- 由消费者取消订单
+
+### 为什么选这个方案
+- 原生支持，不依赖插件
+- 适合“固定 30 分钟后处理”的场景
+- 易于向面试官解释
+
+### 不选插件延时队列的理由
+- 需要安装额外插件
+- 部署复杂度更高
+- 当前项目里原生 TTL + DLX 足够满足业务
+
+---
+
+## 2）Redis ZSet 延时队列：到店后 30 分钟未消费自动取消
+
+### 方案
+项目里另一类延迟业务，我没有继续用 RabbitMQ，而是用了 **Redis ZSet + 定时扫描**：
+- 订单确认到店后，根据 `reservationTime + 30分钟` 计算执行时间
+- 写入 `order:no_show:delay:zset`
+- 定时任务扫描到期元素
+- 对每个订单先加 Redis 原生分布式锁
+- 再执行数据库条件更新，避免并发重复取消
+
+### 为什么这一块不用 RabbitMQ
+因为这类业务的触发时间是基于预约时间动态计算的，而且还要做二次校验：
+- 到店是否已消费
+- 状态是否仍为 `CONFIRMED`
+- 是否到了宽限期
+
+Redis ZSet 在这种“按时间排序 + 主动扫描 + 灵活控制”的场景里更合适。
+
+### 优点
+- 灵活度高
+- 易于做二次时间校验
+- 更适合复杂时间调度
+
+### 缺点
+- 需要自己写扫描逻辑
+- 对扫描频率和批量大小要做权衡
+
+### 为什么面试时要强调这个点
+因为这能体现：
+> 我不是所有延时需求都机械地用 RabbitMQ，而是根据业务场景选择最合适的延时方案。
+
+这比单纯说“我会用延时队列”更有说服力。
+
+---
+
+# 五、面试高频问法与回答模板
+
+## Q1：你项目里 RabbitMQ 用在哪些业务？
+可以回答：
+
+> 我项目里 RabbitMQ 主要用了两大类业务：第一类是 AI 评价审核异步化，第二类是订单确认超时自动取消。另外评价审核通过和删除评价后，我还用了一条消息链路异步刷新餐厅评分。核心目标是解耦、削峰和可靠处理慢业务。
+
+---
+
+## Q2：你为什么选 RabbitMQ，不选 Kafka？
+可以回答：
+
+> 当前项目消息量不大，但我更关注可靠投递、交换机路由、死信队列、TTL 延时能力。RabbitMQ 在这类业务型消息场景下更合适，Spring AMQP 集成也更直接。Kafka 更适合高吞吐日志流和流式场景。
+
+---
+
+## Q3：你怎么保证消息不丢失？
+可以回答：
+
+> 我做了两层保障。第一层是生产者侧：发送前先把消息元数据写入 Redis，再结合 ConfirmCallback 和 ReturnsCallback 做确认与失败重试。第二层是消费者侧：队列本身持久化，消费失败会重试或进入死信队列，不会直接丢。
+
+---
+
+## Q4：你怎么防止重复消费？
+可以回答：
+
+> 我用统一的 `messageId + Redis SETNX` 做消费幂等。消费前先尝试写入 `mq:consumed:{msgId}`，如果已存在就直接跳过。业务异常时删除标记，允许消息重试。另外我还叠加了业务状态判断，比如订单取消前必须还是 `PENDING`，评价审核前必须还是 `PENDING`，做双保险。
+
+---
+
+## Q5：`messageId` 和 `CorrelationData` 有什么区别？
+可以回答：
+
+> `messageId` 是给消费者用的，主要用于消息去重；`CorrelationData` 是给生产者确认回调用的，主要用于 ConfirmCallback / ReturnsCallback 找到对应消息元数据。两者不能互相替代，所以我在发送时两者都保留。
+
+---
+
+## Q6：为什么要用 `@TransactionalEventListener(AFTER_COMMIT)`？
+可以回答：
+
+> 因为我不希望数据库事务回滚了，消息却已经发出。用 `AFTER_COMMIT` 可以保证事务真的提交成功后才发 MQ，这样数据库和消息的时序是一致的。
+
+---
+
+## Q7：你项目里的延时队列是怎么做的？
+可以回答：
+
+> 我有两种延时方案。订单确认超时取消用的是 RabbitMQ TTL + 死信队列，因为它适合固定延迟；到店后 30 分钟未消费取消用的是 Redis ZSet，因为它更灵活，更适合按预约时间调度并做二次状态校验。
+
+---
+
+# 六、项目亮点总结（面试收尾可直接说）
+
+可以用下面这段作为总结：
+
+> 这个项目里我没有只停留在“会发消息、会消费消息”的层面，而是把 RabbitMQ 用在了真实业务链路里，并补了完整的工程化能力：
+> 1. 用 `@TransactionalEventListener` 保证事务提交后再发消息；
+> 2. 用 `ConfirmCallback + ReturnsCallback + Redis` 保证生产者侧可靠发送；
+> 3. 用 `messageId + Redis SETNX` 做统一消费幂等；
+> 4. 用死信队列做 AI 审核失败兜底；
+> 5. 用 TTL + DLX 实现订单确认超时延时取消；
+> 6. 对更灵活的延迟场景，改用 Redis ZSet + 分布式锁 + 条件更新，体现按场景选型的能力。
+>
+> 我的重点不是单纯背 MQ 概念，而是能根据业务场景选合适方案，并把可靠性、幂等性、延时处理和降级兜底都真正落到代码里。
