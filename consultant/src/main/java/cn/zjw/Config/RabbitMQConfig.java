@@ -179,11 +179,15 @@ public class RabbitMQConfig {
                 TimeUnit.SECONDS);
         // 5. 重新发送消息（反序列化为 Object，让 Jackson 自动处理）
         try {
-            Object retryMsg = JSONUtil.toBean(msgJson, Object.class);
+            Object retryMsg = JSONUtil.parse(msgJson);
             rabbitTemplate.convertAndSend(
                     exchange,
                     routingKey,
                     retryMsg,
+                    message -> {
+                        message.getMessageProperties().setMessageId(msgId);
+                        return message;
+                    },
                     new CorrelationData(msgId));
             log.info("消息重试发送成功，msgId: {}，重试次数: {}", msgId, retryCount + 1);
         } catch (Exception e) {
@@ -221,7 +225,7 @@ public class RabbitMQConfig {
         return new DirectExchange("review.exchange");
     }
 
-    // 定义队列
+    // 定义审核队列
     @Bean
     public Queue reviewAuditQueue() {
         return QueueBuilder.durable("review.audit.queue")
@@ -241,19 +245,19 @@ public class RabbitMQConfig {
 
     // 评价通过队列
     @Bean
-    public Queue reviewApprovedQueue() {
-        return QueueBuilder.durable("review.approved.queue").build();
+    public Queue reviewRatingRefreshQueue() {
+        return QueueBuilder.durable("review.rating.refresh.queue").build();
     }
 
     /**
      * 绑定评价通过队列到交换机
      */
     @Bean
-    public Binding reviewApprovedBinding() {
+    public Binding reviewRatingRefreshBinding() {
         return BindingBuilder
-                .bind(reviewApprovedQueue())
+                .bind(reviewRatingRefreshQueue())
                 .to(reviewExchange())
-                .with("review.approved");
+                .with("review.rating.refresh");
     }
 
     // ==================== 订单确认超时相关配置 ====================

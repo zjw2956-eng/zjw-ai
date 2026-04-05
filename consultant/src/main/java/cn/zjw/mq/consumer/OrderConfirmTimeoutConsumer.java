@@ -1,5 +1,6 @@
 package cn.zjw.mq.consumer;
 
+import org.springframework.amqp.core.Message;
 import org.springframework.amqp.rabbit.annotation.RabbitListener;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
@@ -9,6 +10,7 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import cn.zjw.common.enums.OrderStatus;
 import cn.zjw.mapper.OrderMapper;
 import cn.zjw.mq.message.OrderConfirmTimeoutMessage;
+import cn.zjw.mq.support.MqDedupService;
 import cn.zjw.pojo.entity.OrderInfo;
 import lombok.extern.slf4j.Slf4j;
 
@@ -22,6 +24,9 @@ public class OrderConfirmTimeoutConsumer {
     @Autowired
     private OrderMapper orderMapper;
 
+    @Autowired
+    private MqDedupService mqDedupService;
+
     /**
      * 处理订单确认超时消息，这个消费者其实就是死信队列消费者
      * - 检查订单状态是否还是 PENDING
@@ -29,7 +34,12 @@ public class OrderConfirmTimeoutConsumer {
      * - 如果不是，说明已经确认或取消，不处理（幂等）
      */
     @RabbitListener(queues = "order.confirm.timeout.queue")
-    public void handleOrderConfirmTimeout(OrderConfirmTimeoutMessage message) {
+    public void handleOrderConfirmTimeout(OrderConfirmTimeoutMessage message,Message rawMessage) {
+        String msgId = mqDedupService.extractMessageId(rawMessage);
+        if(!mqDedupService.tryMarkConsumed(msgId)){
+            log.info("重复的消息，跳过，msgI={}",msgId);
+            return;
+        }
         try {
             log.info("收到订单确认超时消息: {}", message);
             LambdaQueryWrapper<OrderInfo> wrapper = new LambdaQueryWrapper<>();
@@ -59,6 +69,8 @@ public class OrderConfirmTimeoutConsumer {
         } catch (Exception e) {
             log.error("订单确认超时处理失败，orderNo={}", message.getOrderNo(), e);
             // 抛出异常，触发 RabbitMQ 重试机制
+            //删掉已消费队列的缓存标记
+            mqDedupService.rollback(msgId);
             throw new RuntimeException("订单确认超时处理失败", e);
         }
     }

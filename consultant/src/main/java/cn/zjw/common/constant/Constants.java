@@ -3,6 +3,10 @@ package cn.zjw.common.constant;
 public class Constants {
 
     // Redis键值对常量
+
+    // 消息队列已消费消息ID存储
+    public static final String MQ_CONSUMED_KEY_PREFIX = "mq:consumed:";
+    public static final Long MQ_CONSUMED_EXPIRE_SECONDS = 72 * 60 * 60L;
     // 消息队列生产者确认机制常量
     public static final String RABBITMQ_CORRELATION_MSG_ID = "mq:msgId:";
     // 最大重试次数

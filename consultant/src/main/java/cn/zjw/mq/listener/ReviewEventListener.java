@@ -18,7 +18,9 @@ import cn.hutool.core.util.IdUtil;
 import cn.hutool.json.JSONUtil;
 import cn.zjw.common.constant.Constants;
 import cn.zjw.mapper.ReviewMapper;
+import cn.zjw.mq.event.ReviewRatingRefreshEvent;
 import cn.zjw.mq.event.ReviewCreatedEvent;
+import cn.zjw.mq.message.ReviewRatingRefreshMessage;
 import cn.zjw.mq.message.ReviewAuditMessage;
 import cn.zjw.pojo.entity.Review;
 import lombok.extern.slf4j.Slf4j;
@@ -75,6 +77,47 @@ public class ReviewEventListener {
                 "review.exchange", // 评价交换机
                 "review.audit",
                 message,
+                msg -> {
+                    msg.getMessageProperties().setMessageId(msgId);
+                    return msg;
+                },
+                new CorrelationData(msgId));
+        log.info("MQ消息发送成功，msgId: {}", msgId);
+    }
+
+    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
+    public void handleReviewRatingRefresh(ReviewRatingRefreshEvent event) {
+        // 构造 msgId
+        String msgId = IdUtil.simpleUUID();
+        // 存 Redis 重试元数据（跟 review.audit 一样可靠）
+        Long restaurantId = event.getRestaurantId();
+        ReviewRatingRefreshMessage message = new ReviewRatingRefreshMessage(restaurantId);
+        // 消息体序列化
+        String msgJson = JSONUtil.toJsonStr(message);
+        Map<String, Object> msgMap = new HashMap<>();
+        msgMap.put(Constants.MQ_EXCHANGE, "review.exchange");
+        msgMap.put(Constants.MQ_ROUTING_KEY, "review.rating.refresh");
+        msgMap.put(Constants.MQ_MESSAGE, msgJson);
+        msgMap.put(Constants.MQ_RETRY_COUNT, 0);
+        // 把整个msgMap存储到redis还要把map转成Json String
+        String cacheMap = JSONUtil.toJsonStr(msgMap);
+        redisTemplate.opsForValue().set(
+                Constants.RABBITMQ_CORRELATION_MSG_ID + msgId,
+                cacheMap,
+                Constants.MQ_RETRY_INTERVAL_TIME,
+                TimeUnit.SECONDS);
+        log.info("消息已存入Redis，msgId: {}", msgId);
+        // 发送 review.exchange / review.rating.refresh
+        // 设置 messageId
+        // 发送消息到评价消息队列
+        rabbitTemplate.convertAndSend(
+                "review.exchange", // 评价交换机
+                "review.rating.refresh",
+                message,
+                msg -> {
+                    msg.getMessageProperties().setMessageId(msgId);
+                    return msg;
+                },
                 new CorrelationData(msgId));
         log.info("MQ消息发送成功，msgId: {}", msgId);
     }

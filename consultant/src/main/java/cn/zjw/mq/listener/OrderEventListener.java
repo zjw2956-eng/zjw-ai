@@ -62,6 +62,10 @@ public class OrderEventListener {
                     "", // 默认交换机
                     "order.confirm.timeout.delay.queue",
                     message,
+                    msg -> {
+                        msg.getMessageProperties().setMessageId(msgId);
+                        return msg;
+                    },
                     new CorrelationData(msgId));
             log.info("订单确认超时延迟消息发送成功，orderNo={}, msgId={}", orderNo, msgId);
         } catch (Exception e) {
