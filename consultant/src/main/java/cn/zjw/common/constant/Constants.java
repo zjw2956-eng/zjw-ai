@@ -18,8 +18,18 @@ public class Constants {
     public static final String MQ_ROUTING_KEY = "routingKey";
     // 消息体
     public static final String MQ_MESSAGE = "message";
-    //重试次数
+    // 重试次数
     public static final String MQ_RETRY_COUNT = "retryCount";
+
+    // Redis的ZSet实现延时队列
+    public static final String ORDER_NO_SHOW_DELAY_ZSET_KEY = "order:no_show:delay:zset";
+    public static final String ORDER_NO_SHOW_LOCK_KEY_PREFIX = "order:no_show:lock:";
+    public static final Long ORDER_NO_SHOW_GRACE_MINUTES = 30L;
+    public static final Integer ORDER_NO_SHOW_SCAN_BATCH_SIZE = 100;
+    public static final Long ORDER_NO_SHOW_LOCK_SECONDS = 30L;
+
+    // 定时扫描间隔（毫秒）
+    public static final long ORDER_NO_SHOW_SCAN_INTERVAL_MS = 5000L;
 
     // 延迟队列（死信加过期消息组成）
     public static final Long MQ_DELAY_EXPIRE = 30L;

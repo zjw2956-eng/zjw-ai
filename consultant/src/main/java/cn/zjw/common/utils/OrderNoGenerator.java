@@ -1,63 +1,48 @@
 package cn.zjw.common.utils;
 
-import java.time.LocalDate;
-import java.time.format.DateTimeFormatter;
-import java.util.concurrent.TimeUnit;
-
+import cn.zjw.common.constant.Constants;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Component;
 
-import cn.zjw.common.constant.Constants;
-import lombok.extern.slf4j.Slf4j;
+import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
+import java.util.concurrent.TimeUnit;
 
 /**
- * 订单号生成器（使用Redis原生SETNX实现分布式锁）
+ * 订单号生成器（基于 Redis 原子自增）
  */
 @Slf4j
 @Component
 public class OrderNoGenerator {
 
+    private static final DateTimeFormatter DATE_FORMATTER = DateTimeFormatter.ofPattern("yyyyMMdd");
+
     @Autowired
     private StringRedisTemplate stringRedisTemplate;
+
     /**
-     * 生成订单号
+     * 生成订单号：ORDER + yyyyMMdd + 10位序号
      */
     public String generateOrderNo() {
-        String lockKey = Constants.REDIS_ORDER_NO_GENERATOR;
-        String lockValue = String.valueOf(System.currentTimeMillis());
+        String today = LocalDate.now().format(DATE_FORMATTER);
+        String redisKey = Constants.REDIS_ORDER_NO_SEQ + today;
 
         try {
-            // 尝试获取锁，最多等5秒
-            for (int i = 0; i < 50; i++) {
-                Boolean locked = stringRedisTemplate.opsForValue()
-                    .setIfAbsent(lockKey, lockValue, 500, TimeUnit.MILLISECONDS);
-
-                if (Boolean.TRUE.equals(locked)) {
-                    try {
-                        String today = LocalDate.now().format(DateTimeFormatter.ofPattern("yyyyMMdd"));
-                        String redisKey = Constants.REDIS_ORDER_NO_SEQ + today;
-
-                        Long seq = stringRedisTemplate.opsForValue().increment(redisKey);
-                        stringRedisTemplate.expire(redisKey, 2, TimeUnit.DAYS);
-
-                        return Constants.ORDER_ID_PREFIX + today + String.format("%010d", seq);
-                    } finally {
-                        stringRedisTemplate.delete(lockKey);
-                    }
-                }
-
-                Thread.sleep(100);
+            Long seq = stringRedisTemplate.opsForValue().increment(redisKey);
+            if (seq == null) {
+                throw new RuntimeException("订单号序列生成失败");
             }
 
-            throw new RuntimeException("获取订单号生成锁超时");
+            // 仅在当天首次自增时设置过期，减少重复 expire 开销
+            if (seq == 1L) {
+                stringRedisTemplate.expire(redisKey, 2, TimeUnit.DAYS);
+            }
 
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            log.error("获取订单号生成锁被中断", e);
-            throw new RuntimeException("订单号生成失败：锁获取中断", e);
+            return Constants.ORDER_ID_PREFIX + today + String.format("%010d", seq);
         } catch (Exception e) {
-            log.error("生成订单号失败：{}", e.getMessage(), e);
+            log.error("生成订单号失败", e);
             throw new RuntimeException("订单号生成失败", e);
         }
     }

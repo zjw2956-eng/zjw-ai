@@ -1,5 +1,6 @@
 package cn.zjw.service.impl;
 
+import cn.zjw.service.OrderDelayService;
 import cn.zjw.service.OrderService;
 import cn.zjw.mapper.OrderMapper;
 import cn.zjw.pojo.entity.OrderInfo;
@@ -48,6 +49,7 @@ import org.springframework.transaction.annotation.Transactional;
 @Slf4j
 @Service
 public class OrderServiceImpl extends ServiceImpl<OrderMapper, OrderInfo> implements OrderService {
+    private final StringRedisTemplate stringRedisTemplate;
     @Autowired
     private OrderMapper orderMapper;
     @Autowired
@@ -62,6 +64,12 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, OrderInfo> implem
     @Autowired
     private ApplicationEventPublisher eventPublisher;
 
+    @Autowired
+    private OrderDelayService orderDelayService;
+
+    OrderServiceImpl(StringRedisTemplate stringRedisTemplate) {
+        this.stringRedisTemplate = stringRedisTemplate;
+    }
 
     // [RabbitMQ] 集成后需加 @Transactional，配合发布者确认机制保证消息可靠性
     // [幂等性] 在 orderMapper.insert() 前加幂等校验，防止用户重复提交
@@ -159,22 +167,22 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, OrderInfo> implem
     public OrderVO getOrderDetail(String orderNo) {
         Long userId = UserContext.getCurrentUserId();
         return cacheClient.queryWithPassThrough(
-            Constants.REDIS_ORDER_DETAIL + userId + ":",
-            orderNo,
-            OrderVO.class,
-            this::buildOrderVO,
-            Constants.REDIS_EXPIRE_TIME,
-            Constants.REDIS_EMPTY_KEY_EXPIRE_TIME,
-            "order"
-        );
+                Constants.REDIS_ORDER_DETAIL + userId + ":",
+                orderNo,
+                OrderVO.class,
+                this::buildOrderVO,
+                Constants.REDIS_EXPIRE_TIME,
+                Constants.REDIS_EMPTY_KEY_EXPIRE_TIME,
+                "order");
     }
 
     /**
      * 构造OrderVO
+     * 
      * @param orderInfo
      * @return
      */
-    private OrderVO buildOrderVO(String orderNo){
+    private OrderVO buildOrderVO(String orderNo) {
         Long userId = UserContext.getCurrentUserId();
         // 查询数据库
         LambdaQueryWrapper<OrderInfo> wrapper = new LambdaQueryWrapper<>();
@@ -245,5 +253,46 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, OrderInfo> implem
             result.put(category, count);
         }
         return result;
+    }
+
+    @Override
+    public void confirmOrder(String orderNo) {
+        // 1.查询订单状态进行判空
+        LambdaQueryWrapper<OrderInfo> wrapper = new LambdaQueryWrapper<>();
+        wrapper.eq(OrderInfo::getOrderNo, orderNo)
+                .eq(OrderInfo::getIsDeleted, 0);
+        OrderInfo orderInfo = orderMapper.selectOne(wrapper);
+        if (orderInfo == null) {
+            throw new BusinessException(ResultCode.NOT_FOUND, "订单不存在");
+        }
+        if (!orderInfo.getStatus().equals(OrderStatus.PENDING.getCode())) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "当前订单状态不支持确认");
+        }
+        orderInfo.setStatus(OrderStatus.CONFIRMED.getCode());
+        orderMapper.updateById(orderInfo);
+        // 确认后加入“到店超时30分钟自动取消”延时队列
+        orderDelayService.enqueueNoShowCancel(orderInfo.getOrderNo(), orderInfo.getReservationTime());
+        // 删除订单详情缓存（避免状态脏读）
+        cacheClient.delete(Constants.REDIS_ORDER_DETAIL + orderInfo.getUserId() + ":" + orderInfo.getOrderNo());
+    }
+
+    @Override
+    public void completeOrder(String orderNo) {
+        // 1.查询订单状态进行判空
+        LambdaQueryWrapper<OrderInfo> wrapper = new LambdaQueryWrapper<>();
+        wrapper.eq(OrderInfo::getOrderNo, orderNo)
+                .eq(OrderInfo::getIsDeleted, 0);
+        OrderInfo orderInfo = orderMapper.selectOne(wrapper);
+        if (orderInfo == null) {
+            throw new BusinessException(ResultCode.NOT_FOUND, "订单不存在");
+        }
+        if (!orderInfo.getStatus().equals(OrderStatus.CONFIRMED.getCode())) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "当前订单状态不支持确认完成订单");
+        }
+        // 2.更新状态更新数据库
+        orderInfo.setStatus(OrderStatus.COMPLETED.getCode());
+        orderMapper.updateById(orderInfo);
+        // 3.删除订单详情缓存（状态更新了，就要删掉原缓存，不然会脏读）
+        cacheClient.delete(Constants.REDIS_ORDER_DETAIL + orderInfo.getUserId() + ":" + orderInfo.getOrderNo());
     }
 }
