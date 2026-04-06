@@ -22,17 +22,15 @@ spring:
           enabled: true
           max-attempts: 3 # 最大重试3次
           delay: 1000ms
-
   jackson:
     date-format: yyyy-MM-dd'T'HH:mm:ss
     time-zone: Asia/Shanghai
     serialization:
       write-dates-as-timestamps: false
-
   datasource:
     driver-class-name: com.mysql.cj.jdbc.Driver
-    username: root
-    password: 123456
+  elasticsearch:
+    connection-timeout: 5s
 
 langchain4j:
   community:
@@ -97,3 +95,7 @@ management:
   metrics:
     tags:
       application: consultant
+#日志配置
+logging:
+  level:
+    root: INFO # 全局只输出 INFO 及以上

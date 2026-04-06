@@ -1,7 +1,6 @@
 package cn.zjw.service.impl;
 
 import cn.hutool.core.bean.BeanUtil;
-import cn.hutool.json.JSONUtil;
 import cn.zjw.ai.model.RestaurantSummary;
 import cn.zjw.ai.service.RestaurantSummaryService;
 import cn.zjw.common.cache.CacheClient;
@@ -19,7 +18,13 @@ import cn.zjw.pojo.entity.Restaurant;
 import cn.zjw.pojo.entity.Review;
 import cn.zjw.pojo.vo.DishVO;
 import cn.zjw.pojo.vo.RestaurantVO;
+import cn.zjw.search.document.RestaurantEsDoc;
 import cn.zjw.service.RestaurantService;
+import co.elastic.clients.elasticsearch._types.SortOptions;
+import co.elastic.clients.elasticsearch._types.SortOrder;
+import co.elastic.clients.elasticsearch._types.query_dsl.BoolQuery;
+import co.elastic.clients.elasticsearch._types.query_dsl.Query;
+
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
@@ -27,6 +32,11 @@ import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Lazy;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.elasticsearch.client.elc.NativeQuery;
+import org.springframework.data.elasticsearch.core.ElasticsearchOperations;
+import org.springframework.data.elasticsearch.core.SearchHit;
+import org.springframework.data.elasticsearch.core.SearchHits;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 import java.math.BigDecimal;
@@ -55,6 +65,9 @@ public class RestaurantServiceImpl extends ServiceImpl<RestaurantMapper, Restaur
 
     @Autowired
     private CacheClient cacheClient;
+
+    @Autowired
+    private ElasticsearchOperations elasticsearchOperations;
 
     @Override
     public Page<RestaurantVO> listRestaurants(Integer current, Integer size,
@@ -241,5 +254,83 @@ public class RestaurantServiceImpl extends ServiceImpl<RestaurantMapper, Restaur
                 .orderByDesc(Restaurant::getRating)
                 .last("limit" + (limit == null ? 10 : limit));
         return restaurantMapper.selectList(wrapper);
+    }
+
+    @Override
+    public Page<RestaurantVO> searchRestaurants(Integer current, Integer size, String keyword, String category,
+            BigDecimal minPrice, BigDecimal maxPrice, BigDecimal minRating) {
+        // 1.构造bool查询
+        BoolQuery.Builder boolBuilder = new BoolQuery.Builder();
+        // 关键词（name/address/description）
+        if (StringUtils.hasText(keyword)) {
+            Query keywordQuery = Query.of(q -> q.multiMatch(m -> m
+                    .query(keyword)
+                    .fields("name", "address", "description")));
+            boolBuilder.must(keywordQuery);
+        }
+        // 固定过滤：营业中+未删除
+        boolBuilder.filter(Query.of(q -> q.term(t -> t.field("status").value(Constants.RESTAURANT_STATUS_NORMAL))));
+        boolBuilder.filter(Query.of(q -> q.term(t -> t.field("isDeleted").value(0))));
+        // 可选过滤：分类、价格区间、评分
+        if (StringUtils.hasText(category)) {
+            boolBuilder.filter(Query.of(q -> q.term(t -> t
+                    .field("category")
+                    .value(category))));
+        }
+        if (minPrice != null) {
+            boolBuilder.filter(Query.of(q -> q.range(r -> r
+                    .number(n -> n
+                            .field("avgPrice")
+                            .gte(minPrice.doubleValue())))));
+        }
+
+        if (maxPrice != null) {
+            boolBuilder.filter(Query.of(q -> q.range(r -> r
+                    .number(n -> n
+                            .field("avgPrice")
+                            .lte(maxPrice.doubleValue())))));
+        }
+
+        if (minRating != null) {
+            boolBuilder.filter(Query.of(q -> q.range(r -> r
+                    .number(n -> n
+                            .field("rating")
+                            .gte(minRating.doubleValue())))));
+        }
+        // 分页参数
+        int pageNo = (current == null || current < 1) ? 1 : current;
+        int pageSize = (size == null || size < 1) ? 10 : size;
+        int from = (pageNo - 1) * pageSize;
+
+        // 排序。先相关度，再评分
+        NativeQuery query = NativeQuery.builder()
+                .withQuery(Query.of(q -> q.bool(boolBuilder.build())))
+                .withSort(SortOptions.of(s -> s.score(sc -> sc.order(SortOrder.Desc))))
+                .withSort(SortOptions.of(s -> s.field(f -> f.field("rating").order(SortOrder.Desc))))
+                .withPageable(PageRequest.of(pageNo - 1, pageSize))
+                .build();
+        // 执行查询
+        SearchHits<RestaurantEsDoc> hits = elasticsearchOperations.search(query, RestaurantEsDoc.class);
+
+        // 转VO
+        List<RestaurantVO> voList = hits.getSearchHits().stream()
+                .map(SearchHit::getContent)
+                .map(doc -> {
+                    RestaurantVO vo = new RestaurantVO();
+                    vo.setId(doc.getId());
+                    vo.setName(doc.getName());
+                    vo.setCategory(doc.getCategory());
+                    vo.setAddress(doc.getAddress());
+                    vo.setDescription(doc.getDescription());
+                    vo.setAvgPrice(doc.getAvgPrice());
+                    vo.setRating(doc.getRating());
+                    vo.setStatus(doc.getStatus());
+                    return vo;
+                })
+                .collect(Collectors.toList());
+        //组装MyBatis-Plus Page 返回给前端（保持接口不变）
+        Page<RestaurantVO> resultPage = new Page<>(pageNo, pageSize,hits.getTotalHits());
+        resultPage.setRecords(voList);
+        return  resultPage;
     }
 }

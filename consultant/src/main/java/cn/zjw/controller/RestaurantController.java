@@ -9,8 +9,10 @@ import cn.zjw.service.RestaurantService;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.*;
 import jakarta.validation.Valid;
+
 /**
  * 餐厅Controller
  */
@@ -28,10 +30,21 @@ public class RestaurantController {
      */
     @GetMapping("/list")
     public CommonResult<?> list(@Valid RestaurantQueryDTO query) {
-        Page<RestaurantVO> page = restaurantService.listRestaurants(
-                query.getCurrent(), query.getPageSize(),
-                query.getCategory(), query.getMinPrice(),
-                query.getMaxPrice(), query.getMinRating());
+        Page<RestaurantVO> page;
+        if (StringUtils.hasText(query.getKeyword())) {
+            // 有关键词：走 ES
+            page = restaurantService.searchRestaurants(
+                    query.getCurrent(), query.getPageSize(),
+                    query.getKeyword(),
+                    query.getCategory(), query.getMinPrice(),
+                    query.getMaxPrice(), query.getMinRating());
+        } else {
+            // 无关键词：走原 MySQL
+            page = restaurantService.listRestaurants(
+                    query.getCurrent(), query.getPageSize(),
+                    query.getCategory(), query.getMinPrice(),
+                    query.getMaxPrice(), query.getMinRating());
+        }
         return CommonResult.success(page);
     }
 

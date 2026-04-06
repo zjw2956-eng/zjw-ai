@@ -16,7 +16,14 @@ public interface RestaurantService extends IService<Restaurant> {
      * 分页查询餐厅，按评分降序
      */
     Page<RestaurantVO> listRestaurants(Integer current, Integer size,
-            String category,BigDecimal minPrice,BigDecimal maxPrice,BigDecimal minRating);
+            String category, BigDecimal minPrice, BigDecimal maxPrice, BigDecimal minRating);
+
+    /**
+     * 传入关键词让ES进行搜索
+     * @return
+     */
+    Page<RestaurantVO> searchRestaurants(Integer current, Integer size, String keyword,
+            String category, BigDecimal minPrice, BigDecimal maxPrice, BigDecimal minRating);
 
     /**
      * 根据ID查询餐厅详情（带Redis缓存）
@@ -37,4 +44,5 @@ public interface RestaurantService extends IService<Restaurant> {
      * 查询高分餐厅（用于推荐）
      */
     List<Restaurant> getTopRatedRestaurants(String category, BigDecimal minRating, Integer limit);
+
 }

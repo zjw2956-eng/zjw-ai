@@ -11,4 +11,7 @@ public class RestaurantQueryDTO extends PageParams{
     private BigDecimal minPrice;
     private BigDecimal maxPrice;
     private BigDecimal minRating;
+
+    //关键词给ES搜索
+    private String keyword;
 }
