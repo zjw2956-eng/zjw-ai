@@ -1,19 +1,17 @@
 package cn.zjw.interceptor;
 
-import cn.zjw.common.context.UserContext;
-import cn.zjw.common.exception.UnauthorizedException;
-import cn.zjw.common.utils.JwtUtil;
-import cn.zjw.common.result.ResultCode;
-
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Component;
 import org.springframework.web.servlet.HandlerInterceptor;
 
+import cn.zjw.common.constant.Constants;
+import cn.zjw.common.context.UserContext;
+import cn.zjw.common.exception.UnauthorizedException;
+import cn.zjw.common.utils.JwtUtil;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.extern.slf4j.Slf4j;
-import cn.zjw.common.constant.Constants;
-import org.springframework.data.redis.core.StringRedisTemplate;
 
 
 

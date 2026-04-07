@@ -1,4 +1,4 @@
-package cn.zjw.controller;
+package cn.zjw.controller.user;
 
 import cn.zjw.common.result.CommonResult;
 import cn.zjw.common.result.ResultCode;
@@ -33,6 +33,7 @@ public class RestaurantController {
         Page<RestaurantVO> page;
         if (StringUtils.hasText(query.getKeyword())) {
             // 有关键词：走 ES
+            log.info("走ES搜索......");
             page = restaurantService.searchRestaurants(
                     query.getCurrent(), query.getPageSize(),
                     query.getKeyword(),
@@ -40,6 +41,7 @@ public class RestaurantController {
                     query.getMaxPrice(), query.getMinRating());
         } else {
             // 无关键词：走原 MySQL
+            log.info("走MySQL搜索......");
             page = restaurantService.listRestaurants(
                     query.getCurrent(), query.getPageSize(),
                     query.getCategory(), query.getMinPrice(),

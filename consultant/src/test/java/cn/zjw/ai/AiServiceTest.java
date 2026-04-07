@@ -1,14 +1,9 @@
 package cn.zjw.ai;
 
-import dev.langchain4j.service.Result;
-import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 
 import cn.zjw.ai.service.AiHelperService;
-import reactor.core.publisher.Flux;
-
-import static org.junit.jupiter.api.Assertions.*;
 @SpringBootTest
 class AiHelperServiceTest {
 

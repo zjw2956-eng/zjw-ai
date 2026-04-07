@@ -6,6 +6,7 @@ import cn.zjw.common.constant.Constants;
 import cn.zjw.mapper.RestaurantMapper;
 import cn.zjw.mapper.ReviewMapper;
 import cn.zjw.pojo.entity.Restaurant;
+import cn.zjw.search.service.RestaurantIndexService;
 import cn.zjw.service.RatingUpdateService;
 import lombok.extern.slf4j.Slf4j;
 
@@ -19,7 +20,6 @@ import org.springframework.stereotype.Service;
 @Slf4j
 public class RatingUpdateServiceImpl implements RatingUpdateService {
 
-
     @Autowired
     private ReviewMapper reviewMapper;
     @Autowired
@@ -27,6 +27,10 @@ public class RatingUpdateServiceImpl implements RatingUpdateService {
 
     @Autowired
     private CacheClient cacheClient;
+
+    @Autowired
+    private RestaurantIndexService restaurantIndexService;
+
     /**
      * 更新餐厅评分
      * 计算餐厅的平均评分，并更新到餐厅表
@@ -56,6 +60,14 @@ public class RatingUpdateServiceImpl implements RatingUpdateService {
 
         // 4. 删除缓存
         cacheClient.delete(Constants.REDIS_RESTAURANT_KEY + restaurantId);
+
+        // 5. 同步 ES
+        try {
+            restaurantIndexService.syncRestaurantById(restaurantId);
+        } catch (Exception e) {
+            // 不影响主流程：评分已写库成功，ES 同步失败记录日志即可
+            log.error("同步餐厅评分到ES失败: restaurantId={}", restaurantId, e);
+        }
         log.info("餐厅评分更新成功: restaurantId={}, newRating={}", restaurantId, avgRating);
     }
 

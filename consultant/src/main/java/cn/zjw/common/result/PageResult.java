@@ -1,11 +1,11 @@
 package cn.zjw.common.result;
-import java.util.List;
 import java.io.Serializable;
-import lombok.Data;
-import lombok.Builder;
+import java.util.List;
+
 import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.Data;
 import lombok.NoArgsConstructor;
-import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 /**
  * 分页返回结果
  */

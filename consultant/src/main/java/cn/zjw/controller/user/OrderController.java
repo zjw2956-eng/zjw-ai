@@ -1,4 +1,4 @@
-package cn.zjw.controller;
+package cn.zjw.controller.user;
 
 import cn.zjw.service.OrderService;
 import cn.zjw.pojo.dto.OrderDTO;

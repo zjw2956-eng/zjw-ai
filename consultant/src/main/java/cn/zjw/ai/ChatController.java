@@ -1,15 +1,14 @@
 package cn.zjw.ai;
 
-import cn.zjw.common.result.CommonResult;
-import cn.zjw.ai.service.AiHelperService;
-import cn.zjw.common.context.UserContext;
-import dev.langchain4j.service.Result;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
-import reactor.core.publisher.Flux;
+
+import cn.zjw.ai.service.AiHelperService;
+import cn.zjw.common.context.UserContext;
+import cn.zjw.common.result.CommonResult;
 
 /**
  * AI 聊天控制器

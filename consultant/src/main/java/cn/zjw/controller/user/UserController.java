@@ -1,4 +1,4 @@
-package cn.zjw.controller;
+package cn.zjw.controller.user;
 
 import cn.zjw.common.context.UserContext;
 import cn.zjw.common.result.CommonResult;

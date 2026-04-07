@@ -1,5 +1,9 @@
 package cn.zjw.ai;
 
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+
 import cn.zjw.ai.repository.RedisChatMemoryStore;
 import cn.zjw.ai.service.AiHelperService;
 import cn.zjw.ai.service.RestaurantSummaryService;
@@ -7,14 +11,9 @@ import cn.zjw.ai.service.ReviewAnalysisService;
 import cn.zjw.ai.tools.FoodReservationTool;
 import cn.zjw.ai.tools.RecommendationTool;
 import dev.langchain4j.mcp.McpToolProvider;
-import dev.langchain4j.memory.ChatMemory;
 import dev.langchain4j.memory.chat.MessageWindowChatMemory;
-import dev.langchain4j.rag.content.retriever.ContentRetriever;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.context.annotation.Bean;
-import org.springframework.context.annotation.Configuration;
-
 import dev.langchain4j.model.chat.ChatModel;
+import dev.langchain4j.rag.content.retriever.ContentRetriever;
 import dev.langchain4j.service.AiServices;
 @Configuration
 public class AiServiceFactory {

@@ -1,5 +1,26 @@
 package cn.zjw.service.impl;
 
+import java.math.BigDecimal;
+import java.util.List;
+import java.util.stream.Collectors;
+
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.Lazy;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.elasticsearch.client.elc.NativeQuery;
+import org.springframework.data.elasticsearch.core.ElasticsearchOperations;
+import org.springframework.data.elasticsearch.core.SearchHits;
+import org.springframework.data.elasticsearch.core.query.HighlightQuery;
+import org.springframework.data.elasticsearch.core.query.highlight.Highlight;
+import org.springframework.data.elasticsearch.core.query.highlight.HighlightParameters;
+import org.springframework.data.elasticsearch.core.query.highlight.HighlightField;
+import org.springframework.stereotype.Service;
+import org.springframework.util.StringUtils;
+
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
+
 import cn.hutool.core.bean.BeanUtil;
 import cn.zjw.ai.model.RestaurantSummary;
 import cn.zjw.ai.service.RestaurantSummaryService;
@@ -24,25 +45,7 @@ import co.elastic.clients.elasticsearch._types.SortOptions;
 import co.elastic.clients.elasticsearch._types.SortOrder;
 import co.elastic.clients.elasticsearch._types.query_dsl.BoolQuery;
 import co.elastic.clients.elasticsearch._types.query_dsl.Query;
-
-import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
-import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
-import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
-
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.context.annotation.Lazy;
-import org.springframework.data.domain.PageRequest;
-import org.springframework.data.elasticsearch.client.elc.NativeQuery;
-import org.springframework.data.elasticsearch.core.ElasticsearchOperations;
-import org.springframework.data.elasticsearch.core.SearchHit;
-import org.springframework.data.elasticsearch.core.SearchHits;
-import org.springframework.stereotype.Service;
-import org.springframework.util.StringUtils;
-import java.math.BigDecimal;
-import java.util.List;
-import java.util.concurrent.TimeUnit;
-import java.util.stream.Collectors;
 
 /**
  * 餐厅Service实现
@@ -265,7 +268,13 @@ public class RestaurantServiceImpl extends ServiceImpl<RestaurantMapper, Restaur
         if (StringUtils.hasText(keyword)) {
             Query keywordQuery = Query.of(q -> q.multiMatch(m -> m
                     .query(keyword)
-                    .fields("name", "address", "description")));
+                    .fields("name", "address", "description", "category.text")
+                    // 关键：开启模糊匹配（编辑距离容错）
+                    .fuzziness("AUTO")
+                    // 可选：至少前 N 个字符必须精确，避免太“飘”
+                    .prefixLength(1)
+                    // 可选：控制模糊展开数量，避免性能抖动
+                    .maxExpansions(50)));
             boolBuilder.must(keywordQuery);
         }
         // 固定过滤：营业中+未删除
@@ -300,22 +309,33 @@ public class RestaurantServiceImpl extends ServiceImpl<RestaurantMapper, Restaur
         // 分页参数
         int pageNo = (current == null || current < 1) ? 1 : current;
         int pageSize = (size == null || size < 1) ? 10 : size;
-        int from = (pageNo - 1) * pageSize;
 
-        // 排序。先相关度，再评分
+        // 排序。先相关度，再评分；配置高亮
+        HighlightParameters highlightParameters = HighlightParameters.builder()
+                .withPreTags("<em>")
+                .withPostTags("</em>")
+                .build();
+
+        Highlight highlight = new Highlight(
+                highlightParameters,
+                List.of(
+                        new HighlightField("name"),
+                        new HighlightField("description")));
+
         NativeQuery query = NativeQuery.builder()
                 .withQuery(Query.of(q -> q.bool(boolBuilder.build())))
                 .withSort(SortOptions.of(s -> s.score(sc -> sc.order(SortOrder.Desc))))
                 .withSort(SortOptions.of(s -> s.field(f -> f.field("rating").order(SortOrder.Desc))))
                 .withPageable(PageRequest.of(pageNo - 1, pageSize))
+                .withHighlightQuery(new HighlightQuery(highlight, RestaurantEsDoc.class))
                 .build();
         // 执行查询
         SearchHits<RestaurantEsDoc> hits = elasticsearchOperations.search(query, RestaurantEsDoc.class);
 
-        // 转VO
+        // 转VO，并应用高亮结果
         List<RestaurantVO> voList = hits.getSearchHits().stream()
-                .map(SearchHit::getContent)
-                .map(doc -> {
+                .map(hit -> {
+                    RestaurantEsDoc doc = hit.getContent();
                     RestaurantVO vo = new RestaurantVO();
                     vo.setId(doc.getId());
                     vo.setName(doc.getName());
@@ -325,12 +345,26 @@ public class RestaurantServiceImpl extends ServiceImpl<RestaurantMapper, Restaur
                     vo.setAvgPrice(doc.getAvgPrice());
                     vo.setRating(doc.getRating());
                     vo.setStatus(doc.getStatus());
+
+                    // 应用高亮字段（若存在）
+                    if (hit.getHighlightFields() != null && !hit.getHighlightFields().isEmpty()) {
+                        List<String> nameHighlights = hit.getHighlightFields().get("name");
+                        if (nameHighlights != null && !nameHighlights.isEmpty()) {
+                            vo.setName(nameHighlights.get(0));
+                        }
+
+                        List<String> descHighlights = hit.getHighlightFields().get("description");
+                        if (descHighlights != null && !descHighlights.isEmpty()) {
+                            vo.setDescription(descHighlights.get(0));
+                        }
+                    }
+
                     return vo;
                 })
                 .collect(Collectors.toList());
-        //组装MyBatis-Plus Page 返回给前端（保持接口不变）
-        Page<RestaurantVO> resultPage = new Page<>(pageNo, pageSize,hits.getTotalHits());
+        // 组装MyBatis-Plus Page 返回给前端（保持接口不变）
+        Page<RestaurantVO> resultPage = new Page<>(pageNo, pageSize, hits.getTotalHits());
         resultPage.setRecords(voList);
-        return  resultPage;
+        return resultPage;
     }
 }

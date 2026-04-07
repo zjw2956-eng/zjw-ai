@@ -2,11 +2,12 @@ package cn.zjw.search.service.impl;
 
 import java.util.List;
 import java.util.stream.Collectors;
+
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.elasticsearch.core.ElasticsearchOperations;
 import org.springframework.data.elasticsearch.core.IndexOperations;
 import org.springframework.stereotype.Service;
-import cn.hutool.core.bean.BeanUtil;
+
 import cn.zjw.mapper.RestaurantMapper;
 import cn.zjw.pojo.entity.Restaurant;
 import cn.zjw.search.document.RestaurantEsDoc;
@@ -100,4 +101,28 @@ public class RestaurantIndexServiceImpl implements RestaurantIndexService {
         log.info("已删除餐厅 ES 文档: {}", restaurantId);
     }
 
+    @Override
+    public void deleteIndexIfExists() {
+        IndexOperations indexOps = elasticsearchOperations.indexOps(RestaurantEsDoc.class);
+        if (indexOps.exists()) {
+            boolean deleted = indexOps.delete();
+            if (!deleted) {
+                throw new RuntimeException("删除 restaurant 索引失败");
+            }
+            log.info("删除 ES 索引成功: restaurant");
+        } else {
+            log.info("ES 索引不存在，跳过删除: restaurant");
+        }
+    }
+
+    @Override
+    public void rebuildIndex() {
+        // 1. 先删旧索引
+        deleteIndexIfExists();
+        // 2. 重建索引和 mapping
+        createIndexIfNeeded();
+        // 3. 全量导入
+        importAllRestaurants();
+        log.info("重建 restaurant 索引完成");
+    }
 }

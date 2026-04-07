@@ -3,6 +3,8 @@ package cn.zjw.common.constant;
 public class Constants {
 
     // Redis键值对常量
+    //热门榜单常量
+    public static final String HOT_RESTAURANT_RANK_KEY = "hot:restaurant:rank";
 
     // 消息队列已消费消息ID存储
     public static final String MQ_CONSUMED_KEY_PREFIX = "mq:consumed:";

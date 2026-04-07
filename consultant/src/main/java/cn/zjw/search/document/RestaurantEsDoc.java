@@ -6,6 +6,8 @@ import org.springframework.data.annotation.Id;
 import org.springframework.data.elasticsearch.annotations.Document;
 import org.springframework.data.elasticsearch.annotations.Field;
 import org.springframework.data.elasticsearch.annotations.FieldType;
+import org.springframework.data.elasticsearch.annotations.InnerField;
+import org.springframework.data.elasticsearch.annotations.MultiField;
 
 import lombok.AllArgsConstructor;
 import lombok.Data;
@@ -26,25 +28,27 @@ public class RestaurantEsDoc {
     /**
      * 餐厅名称
      */
-    @Field(type = FieldType.Text)
+    @Field(type = FieldType.Text, analyzer = "ik_max_word", searchAnalyzer = "ik_smart")
     private String name;
 
     /**
      * 菜系分类，先作为精确筛选字段
      */
-    @Field(type = FieldType.Keyword)
+    @MultiField(mainField = @Field(type = FieldType.Keyword), otherFields = {
+            @InnerField(suffix = "text", type = FieldType.Text, analyzer = "ik_max_word", searchAnalyzer = "ik_smart")
+    })
     private String category;
 
     /**
      * 餐厅地址
      */
-    @Field(type = FieldType.Text)
+    @Field(type = FieldType.Text, analyzer = "ik_max_word", searchAnalyzer = "ik_smart")
     private String address;
 
     /**
      * 餐厅简介
      */
-    @Field(type = FieldType.Text)
+    @Field(type = FieldType.Text, analyzer = "ik_max_word", searchAnalyzer = "ik_smart")
     private String description;
 
     /**

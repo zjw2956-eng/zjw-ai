@@ -24,4 +24,14 @@ public interface RestaurantIndexService {
      */
     void deleteRestaurantById(Long restaurantId);
 
+    /**
+     * 重建索引
+     */
+    void rebuildIndex();
+
+    /**
+     * 删除索引（如果存在）
+     */
+    void deleteIndexIfExists();
+
 }

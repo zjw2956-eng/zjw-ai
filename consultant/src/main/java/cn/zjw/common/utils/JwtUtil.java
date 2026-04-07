@@ -1,15 +1,17 @@
 package cn.zjw.common.utils;
-import io.jsonwebtoken.*;
-import io.jsonwebtoken.security.Keys;
-import javax.crypto.SecretKey;
 import java.nio.charset.StandardCharsets;
 import java.util.Date;
-import cn.zjw.common.exception.UnauthorizedException;
-import org.springframework.beans.factory.annotation.Value;
-import cn.zjw.common.result.ResultCode;
-import lombok.extern.slf4j.Slf4j;
 
+import javax.crypto.SecretKey;
+
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
+
+import cn.zjw.common.exception.UnauthorizedException;
+import io.jsonwebtoken.Claims;
+import io.jsonwebtoken.Jwts;
+import io.jsonwebtoken.security.Keys;
+import lombok.extern.slf4j.Slf4j;
 
 /**
  * JWT工具类

@@ -1,10 +1,8 @@
 package cn.zjw.ai.service;
 
-import dev.langchain4j.service.*;
-import dev.langchain4j.service.spring.AiService;
-import reactor.core.publisher.Flux;
-
-import java.util.List;
+import dev.langchain4j.service.MemoryId;
+import dev.langchain4j.service.SystemMessage;
+import dev.langchain4j.service.UserMessage;
 
 
 /**

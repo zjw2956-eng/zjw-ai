@@ -19,4 +19,16 @@
         LIMIT 5
 </select>
 
+<!-- 查询30天之内的餐厅热门榜单 -->
+<select id="selectHotRankLast30Days" resultType="cn.zjw.pojo.dto.HotRankItem">
+  SELECT
+      restaurant_id AS restaurantId,
+      COUNT(*) AS score
+  FROM order_info o
+  WHERE status = 2
+    AND create_time &gt;= DATE_SUB(NOW(), INTERVAL 30 DAY)
+  GROUP BY restaurant_id
+  ORDER BY score DESC
+</select>
+
 </mapper>

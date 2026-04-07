@@ -1,5 +1,6 @@
 package cn.zjw.mapper;
 
+import cn.zjw.pojo.dto.HotRankItem;
 import cn.zjw.pojo.entity.OrderInfo;
 import io.lettuce.core.dynamic.annotation.Param;
 
@@ -22,4 +23,9 @@ public interface OrderMapper extends BaseMapper<OrderInfo> {
      * @return List<Map<String, Object>> 菜系-订单数量
      */
     List<Map<String, Object>> selectUserPreferredCategories(@Param("userId") Long userId);
+
+    /**
+     * 查询热门榜单，30天之内
+     */
+    List<HotRankItem> selectHotRankLast30Days();
 }

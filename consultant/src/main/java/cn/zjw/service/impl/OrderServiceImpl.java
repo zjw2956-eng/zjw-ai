@@ -1,47 +1,41 @@
 package cn.zjw.service.impl;
 
-import cn.zjw.service.OrderDelayService;
-import cn.zjw.service.OrderService;
-import cn.zjw.mapper.OrderMapper;
-import cn.zjw.pojo.entity.OrderInfo;
-import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
-import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
-import cn.zjw.common.context.UserContext;
-import cn.hutool.core.util.PhoneUtil;
-import cn.hutool.core.util.RandomUtil;
-import cn.hutool.json.JSONUtil;
-import org.springframework.stereotype.Service;
-
-import cn.zjw.common.cache.CacheClient;
-import cn.zjw.common.constant.Constants;
-import cn.zjw.pojo.dto.OrderDTO;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.context.ApplicationEventPublisher;
-import org.springframework.data.redis.core.StringRedisTemplate;
-import org.springframework.data.redis.serializer.StringRedisSerializer;
-
-import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
-import java.util.concurrent.TimeUnit;
-import cn.hutool.core.bean.BeanUtil;
-import cn.zjw.common.enums.OrderStatus;
-import cn.zjw.pojo.entity.Restaurant;
-import cn.zjw.mapper.RestaurantMapper;
-import cn.zjw.mq.event.OrderCreatedEvent;
-import cn.zjw.pojo.vo.OrderVO;
-import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
-import java.util.stream.Collectors;
-import java.util.Set;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import lombok.extern.slf4j.Slf4j;
+import java.util.Set;
+import java.util.stream.Collectors;
+
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
+
+import cn.hutool.core.bean.BeanUtil;
+import cn.hutool.core.util.PhoneUtil;
+import cn.zjw.common.cache.CacheClient;
+import cn.zjw.common.constant.Constants;
+import cn.zjw.common.context.UserContext;
+import cn.zjw.common.enums.OrderStatus;
 import cn.zjw.common.exception.BusinessException;
 import cn.zjw.common.result.ResultCode;
 import cn.zjw.common.utils.OrderNoGenerator;
-
-import org.springframework.transaction.annotation.Transactional;
+import cn.zjw.mapper.OrderMapper;
+import cn.zjw.mapper.RestaurantMapper;
+import cn.zjw.mq.event.OrderCreatedEvent;
+import cn.zjw.pojo.dto.OrderDTO;
+import cn.zjw.pojo.entity.OrderInfo;
+import cn.zjw.pojo.entity.Restaurant;
+import cn.zjw.pojo.vo.OrderVO;
+import cn.zjw.service.OrderDelayService;
+import cn.zjw.service.OrderService;
+import lombok.extern.slf4j.Slf4j;
 
 /**
  * 订单Service实现
@@ -235,9 +229,6 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, OrderInfo> implem
 
         // 删除缓存
         cacheClient.delete(Constants.REDIS_ORDER_DETAIL + userId + ":" + orderNo);
-        // TODO: [RabbitMQ] 取消成功后发送通知消息，告知用户订单已取消
-        // 交换机: order.exchange，routing key: order.cancel
-        // 消息体: { orderNo, userId }
     }
 
     @Override
