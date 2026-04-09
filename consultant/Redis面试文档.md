@@ -178,6 +178,14 @@ ConfirmCallback 是交换机确认回调，消息到达交换机后触发，这�
 
 ## 面试问：AI 多轮对话的上下文怎么持久化的？
 
+为什么用 Redis 存会话记忆，而不是内存或数据库？
+
+| 方案 | 问题 |
+|------|------|
+| JVM 内存（Map） | 服务重启后记忆丢失；多实例部署下不同实例无法共享同一用户的会话 |
+| MySQL | 每次对话都要读写数据库，频繁 IO，延迟高；消息是 JSON 列表，关系型数据库存储不自然 |
+| Redis | 内存读写快；TTL 自动过期不需要手动清理；天然支持多实例共享；JSON 字符串存储消息列表简单直接 |
+
 方案是自定义 RedisChatMemoryStore 实现 LangChain4j 的 ChatMemoryStore 接口。
 
 存储时调 ChatMessageSerializer.messagesToJson 把消息列表序列化成 JSON 字符串，写入 chat:memory:{memoryId} 这个 key，设置 1 天 TTL。读取时从 Redis 取出 JSON，调 ChatMessageDeserializer.messagesFromJson 反序列化回消息列表。
