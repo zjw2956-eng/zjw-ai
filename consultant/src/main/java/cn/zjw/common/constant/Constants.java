@@ -3,8 +3,12 @@ package cn.zjw.common.constant;
 public class Constants {
 
     // Redis键值对常量
-    //热门榜单常量
+    // 热门榜单常量
     public static final String HOT_RESTAURANT_RANK_KEY = "hot:restaurant:rank";
+    // 新增：热门榜单详情缓存
+    public static final String HOT_RESTAURANT_DETAIL_KEY = "hot:restaurant:detail:";
+    public static final long HOT_RESTAURANT_DETAIL_TTL_DAYS = 40L;
+    public static final int HOT_RESTAURANT_PREHEAT_LIMIT = 30;
 
     // 消息队列已消费消息ID存储
     public static final String MQ_CONSUMED_KEY_PREFIX = "mq:consumed:";
@@ -74,12 +78,26 @@ public class Constants {
     public static final String ORDER_ID_PREFIX = "ORDER";
 
     // 预热/防击穿锁 Key 前缀
+    // 抢锁时间
+    public static final Long LOCK_GET_TIME = 0L;
+    // Rlock持有锁时间
+    public static final long LOCK_TTL_SECONDS = 10L;
+    // 抢不到锁的休眠等待时间
+    public static final long LOCK_RETRY_SLEEP_MILLIS = 50L;
+
+    //餐厅热榜缓存键
+    public static final String REDIS_LOCK_RESTAURANT_HOT_RANK_KEY = "lock:hot:rank:refresh";
     // 餐厅锁键
     public static final String REDIS_LOCK_RESTAURANT_KEY = "lock:restaurant:";
     // 餐厅摘要锁键
     public static final String REDIS_LOCK_RESTAURANT_SUMMARY_KEY = "lock:restaurant:summary:";
+
     // 用户锁键
     public static final String REDIS_LOCK_USER_KEY = "lock:user:";
+    // 用户注册锁
+    public static final String REDIS_LOCK_USER_REGISTER_KEY = "lock:user:register:";
+    // 评价提交锁
+    public static final String REDIS_LOCK_REVIEW_SUBMIT = "lock:review:submit:";
 
     // Redission锁键值对常量
     // 订单号生成器

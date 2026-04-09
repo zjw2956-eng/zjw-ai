@@ -70,20 +70,22 @@ public class RecommendationTool {
                     - User specifies minimum rating requirement
 
                     Parameters:
-                    - category: Cuisine type (e.g., "川菜", "粤菜", "日料"),pass null for all
-                    - minRating: Minimum rating (e.g., 4.5), pass null for no limit
+                    - category: Cuisine type (e.g., "川菜", "粤菜", "日料"), pass empty string "" for all
+                    - minRating: Minimum rating (e.g., 4.5), pass 0 for no limit
                     - limit: Maximum number of results (recommended: 5-10)
 
                     Returns: JSON array of restaurant objects with name,rating, category, etc.
                 """)
     public String getTopRatedRestaurants(
-            @P("Cuisine category, null for all") String category,
-            @P("Minimum rating, null for no limit") BigDecimal minRating,
+            @P("Cuisine category, empty string for all") String category,
+            @P("Minimum rating, 0 for no limit") BigDecimal minRating,
             @P("Maximum number of results") Integer limit) {
         try {
+            String categoryParam = (category == null || category.isBlank()) ? null : category;
+            BigDecimal ratingParam = (minRating == null || minRating.compareTo(BigDecimal.ZERO) == 0) ? null : minRating;
             log.info("查询高分餐厅列表，菜系：{}，最低评分：{}，数量：{}",
-                    category, minRating, limit);
-            List<Restaurant> topRestaurants = restaurantService.getTopRatedRestaurants(category, minRating,
+                    categoryParam, ratingParam, limit);
+            List<Restaurant> topRestaurants = restaurantService.getTopRatedRestaurants(categoryParam, ratingParam,
                     limit);
             log.info("查询到 {} 家高分餐厅",
                     topRestaurants.size());

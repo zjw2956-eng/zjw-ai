@@ -308,4 +308,30 @@ public class RabbitMQConfig {
                 .to(orderDlxExchange())
                 .with("order.confirm.timeout");
     }
+
+    // ==================== 数据同步到ES相关配置 ====================
+    // 同步ES数据交换机
+    @Bean
+    public DirectExchange RestaurantEsSyncExchange() {
+        return new DirectExchange("restaurant.es.sync.exchange");
+    }
+
+    // 定义同步ES数据队列
+    @Bean
+    public Queue RestaurantEsSyncQueue() {
+        return QueueBuilder.durable("restaurant.es.sync.queue")
+                .build();
+    }
+
+    /**
+     * 绑定消费队列到死信交换机
+     */
+    @Bean
+    public Binding EsSyncBinding() {
+        return BindingBuilder
+                .bind(RestaurantEsSyncQueue())
+                .to(RestaurantEsSyncExchange())
+                .with("restaurant.es.sync");
+    }
+
 }

@@ -23,8 +23,8 @@ public class CacheClient {
      * 空值哨兵（防穿透），必须是固定 raw string，不走 JSON 序列化
      */
     private static final String NULL_SENTINEL = "__NULL__";
-    private static final long LOCK_TTL_SECONDS = 10L;
-    private static final long LOCK_RETRY_SLEEP_MILLIS = 50L;
+    
+
 
     @Autowired
     private StringRedisTemplate stringRedisTemplate;
@@ -197,10 +197,13 @@ public class CacheClient {
          boolean locked = false;
          try {
              // 抢锁：不等待，拿不到立即返回 false
-             locked = lock.tryLock(0, LOCK_TTL_SECONDS, TimeUnit.SECONDS);
+             locked = lock.tryLock(
+                Constants.LOCK_GET_TIME, 
+                Constants.LOCK_TTL_SECONDS, 
+                TimeUnit.SECONDS);
              if (!locked) {
                  count("cache.lock.total", biz, strategy, "failed");
-                 Thread.sleep(LOCK_RETRY_SLEEP_MILLIS);
+                 Thread.sleep(Constants.LOCK_RETRY_SLEEP_MILLIS);
                  // 重试读缓存
                  String retryJson = stringRedisTemplate.opsForValue().get(key);
                  if (retryJson != null && !retryJson.isBlank() && !NULL_SENTINEL.equals(retryJson)) {

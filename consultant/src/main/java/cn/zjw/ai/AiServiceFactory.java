@@ -13,19 +13,24 @@ import cn.zjw.ai.tools.RecommendationTool;
 import dev.langchain4j.mcp.McpToolProvider;
 import dev.langchain4j.memory.chat.MessageWindowChatMemory;
 import dev.langchain4j.model.chat.ChatModel;
+import dev.langchain4j.model.chat.StreamingChatModel;
 import dev.langchain4j.rag.content.retriever.ContentRetriever;
 import dev.langchain4j.service.AiServices;
+
 @Configuration
 public class AiServiceFactory {
 
     @Autowired
     private FoodReservationTool foodReservationTool;
-    
+
     @Autowired
     private RecommendationTool recommendationTool;
-    
+
     @Autowired
     private ChatModel qwenChatModel;
+
+    @Autowired
+    private StreamingChatModel qwenStreamingChatModel; // Starter 自动提供
 
     @Autowired
     private ContentRetriever contentRetriever;
@@ -35,7 +40,6 @@ public class AiServiceFactory {
 
     @Autowired
     private McpToolProvider mcpToolProvider;
-
 
     @Bean
     public RestaurantSummaryService restaurantSummaryService() {
@@ -55,13 +59,14 @@ public class AiServiceFactory {
     public AiHelperService aiHelperService() {
         AiHelperService aiHelperService = AiServices.builder(AiHelperService.class)
                 .chatModel(qwenChatModel)
-                .contentRetriever(contentRetriever)//RAG检索增强生产
-                .tools(foodReservationTool,recommendationTool) //工具调用
-                .toolProvider(mcpToolProvider) //MCP工具调用
+                .streamingChatModel(qwenStreamingChatModel) // 流式
+                .contentRetriever(contentRetriever)// RAG检索增强生产
+                .tools(foodReservationTool, recommendationTool) // 工具调用
+                .toolProvider(mcpToolProvider) // MCP工具调用
                 .chatMemoryProvider(memoryId -> MessageWindowChatMemory.builder()
-                        .id(memoryId)//动态会话ID
-                        .maxMessages(10) //保留最近10条消息
-                        .chatMemoryStore(redisChatMemoryStore)//使用Redis持久化
+                        .id(memoryId)// 动态会话ID
+                        .maxMessages(10) // 保留最近10条消息
+                        .chatMemoryStore(redisChatMemoryStore)// 使用Redis持久化
                         .build())
                 .build();
         return aiHelperService;

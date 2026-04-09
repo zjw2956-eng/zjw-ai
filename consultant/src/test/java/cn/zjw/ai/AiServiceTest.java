@@ -12,7 +12,7 @@ class AiHelperServiceTest {
 
 //    @Test
 //    void chatForReport() {
-//        String userMessage = "你好，我是程序员鱼皮，学编程两年半，请帮我制定学习报告";
+//        String userMessage = "你好，我是zjw，学编程两年半，请帮我制定学习报告";
 //        AiHelperService.Report report = aiHelperService.chatForReport(userMessage);
 //        System.out.println(report);
 //    }
@@ -24,7 +24,7 @@ class AiHelperServiceTest {
 
 //    @Test
 //    void chatWithMemory() {
-//        String result = aiHelperService.chat("你好，我是程序员鱼皮");
+//        String result = aiHelperService.chat("你好，我是zjw");
 //        System.out.println(result);
 //        result = aiHelperService.chat("你好，我是谁来着？");
 //        System.out.println(result);

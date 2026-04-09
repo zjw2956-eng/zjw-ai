@@ -43,7 +43,6 @@ import lombok.extern.slf4j.Slf4j;
 @Slf4j
 @Service
 public class OrderServiceImpl extends ServiceImpl<OrderMapper, OrderInfo> implements OrderService {
-    private final StringRedisTemplate stringRedisTemplate;
     @Autowired
     private OrderMapper orderMapper;
     @Autowired
@@ -60,10 +59,6 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, OrderInfo> implem
 
     @Autowired
     private OrderDelayService orderDelayService;
-
-    OrderServiceImpl(StringRedisTemplate stringRedisTemplate) {
-        this.stringRedisTemplate = stringRedisTemplate;
-    }
 
     // [RabbitMQ] 集成后需加 @Transactional，配合发布者确认机制保证消息可靠性
     // [幂等性] 在 orderMapper.insert() 前加幂等校验，防止用户重复提交
@@ -240,8 +235,8 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, OrderInfo> implem
         Map<String, Integer> result = new HashMap<>();
         for (Map<String, Object> map : list) {
             String category = (String) map.get("category");
-            Integer count = (Integer) map.get("count");
-            result.put(category, count);
+            Number count = (Number) map.get("count");
+            result.put(category, count.intValue());
         }
         return result;
     }

@@ -45,6 +45,7 @@ import co.elastic.clients.elasticsearch._types.SortOptions;
 import co.elastic.clients.elasticsearch._types.SortOrder;
 import co.elastic.clients.elasticsearch._types.query_dsl.BoolQuery;
 import co.elastic.clients.elasticsearch._types.query_dsl.Query;
+import co.elastic.clients.json.JsonData;
 import lombok.extern.slf4j.Slf4j;
 
 /**
@@ -255,7 +256,7 @@ public class RestaurantServiceImpl extends ServiceImpl<RestaurantMapper, Restaur
                 .eq(category != null, Restaurant::getCategory, category)
                 .ge(minRating != null, Restaurant::getRating, minRating)
                 .orderByDesc(Restaurant::getRating)
-                .last("limit" + (limit == null ? 10 : limit));
+                .last("LIMIT " + (limit == null ? 10 : limit));
         return restaurantMapper.selectList(wrapper);
     }
 
@@ -288,23 +289,20 @@ public class RestaurantServiceImpl extends ServiceImpl<RestaurantMapper, Restaur
         }
         if (minPrice != null) {
             boolBuilder.filter(Query.of(q -> q.range(r -> r
-                    .number(n -> n
-                            .field("avgPrice")
-                            .gte(minPrice.doubleValue())))));
+                    .field("avgPrice")
+                    .gte(JsonData.of(minPrice.doubleValue())))));
         }
 
         if (maxPrice != null) {
             boolBuilder.filter(Query.of(q -> q.range(r -> r
-                    .number(n -> n
-                            .field("avgPrice")
-                            .lte(maxPrice.doubleValue())))));
+                    .field("avgPrice")
+                    .lte(JsonData.of(maxPrice.doubleValue())))));
         }
 
         if (minRating != null) {
             boolBuilder.filter(Query.of(q -> q.range(r -> r
-                    .number(n -> n
-                            .field("rating")
-                            .gte(minRating.doubleValue())))));
+                    .field("rating")
+                    .gte(JsonData.of(minRating.doubleValue())))));
         }
         // 分页参数
         int pageNo = (current == null || current < 1) ? 1 : current;
