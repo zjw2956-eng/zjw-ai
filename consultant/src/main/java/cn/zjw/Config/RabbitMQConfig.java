@@ -309,6 +309,25 @@ public class RabbitMQConfig {
                 .with("order.confirm.timeout");
     }
 
+    // ==================== 热门榜单异步刷新配置 ====================
+    @Bean
+    public DirectExchange hotRankRefreshExchange() {
+        return new DirectExchange("hot.rank.refresh.exchange");
+    }
+
+    @Bean
+    public Queue hotRankRefreshQueue() {
+        return QueueBuilder.durable("hot.rank.refresh.queue").build();
+    }
+
+    @Bean
+    public Binding hotRankRefreshBinding() {
+        return BindingBuilder
+                .bind(hotRankRefreshQueue())
+                .to(hotRankRefreshExchange())
+                .with("hot.rank.refresh");
+    }
+
     // ==================== 数据同步到ES相关配置 ====================
     // 同步ES数据交换机
     @Bean

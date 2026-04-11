@@ -126,15 +126,24 @@ Lua 脚本在 Redis 中是原子执行的，整个加锁或解锁过程中不会
 
 这里 tryLock 拿不到锁不是直接失败，而是 sleep + 重试，因为缓存重建是必须完成的，不能跳过。
 
-## 场景四：热门榜单刷新并发保护（HotRankServiceImpl）
+## 场景四：热门榜单刷新并发保护（HotRankServiceImpl + HotRankScheduler）
 
-**问题**：定时任务和手动刷新同时触发，多线程并发删旧榜单、查 DB、写 ZSet，数据混乱。
+**问题**：定时任务和手动刷新同时触发，多线程并发删旧榜单、查 DB、写 ZSet，数据混乱。多实例部署下，每个实例的定时任务都会在同一时刻触发，还会导致队列堆积重复消息。
 
 **锁粒度**：全局唯一，key 是 Constants.REDIS_LOCK_RESTAURANT_HOT_RANK_KEY（即 lock:hot:rank:refresh），整个刷新操作只允许一个线程执行。
 
-**流程**：tryLock(0, 10, TimeUnit.SECONDS) 拿不到锁直接 return，不抛异常。拿到锁后执行统计近30天订单数、写入 Redis ZSet、预热详情缓存等操作。
+**两把锁的设计**：
+
+| 锁 key | 加锁位置 | 作用 |
+|---|---|---|
+| lock:hot:rank:refresh:schedule | HotRankScheduler 定时任务 | 多实例下只让一个节点发 MQ 消息 |
+| lock:hot:rank:refresh | HotRankService.refreshHotRestaurantRank | 防止消费者并发执行刷新逻辑 |
+
+**流程**：定时任务先抢 `:schedule` 锁，抢到才发 MQ 消息，其余实例直接跳过。消费者收到消息后调用 `refreshHotRestaurantRank`，内部再抢 `lock:hot:rank:refresh` 锁执行实际刷新，拿不到锁直接 return。
 
 拿不到锁直接 return 而不是抛异常，因为榜单刷新是幂等操作，第一个线程刷完数据就是最新的，其他线程没必要等待或报错。
+
+**为什么用 MQ 而不是直接在定时任务里执行**：定时任务只发消息，执行极快，不阻塞调度线程；消费者执行失败会触发 RabbitMQ 自动重试，可靠性更强；刷新逻辑和调度逻辑解耦。
 
 ---
 
@@ -231,4 +240,4 @@ RedLock 是 Redis 官方提出的多节点分布式锁算法：向 N 个独立 R
 
 # 十、面试总结（一段话版本）
 
-我项目里 Redisson 主要用在四个场景：用户注册和评价提交的"先查后插"并发安全、热门榜单刷新的幂等保护、以及 CacheClient 里的缓存击穿防护。每个场景的锁粒度都不一样，注册按用户名、评价按用户+订单、缓存按数据 ID、榜单用全局锁。所有场景都用 tryLock(0, 10, TimeUnit.SECONDS)，不等待，拿不到锁根据业务决定是抛异常、直接返回还是 sleep 重试。释放锁时统一加 isHeldByCurrentThread() 判断，防止锁超时后误释放他人的锁。底层原理上，Redisson 用 Redis Hash 存锁信息实现可重入，用 Lua 脚本保证加锁解锁的原子性，指定 leaseTime 时不触发看门狗，适合短操作场景。
+我项目里 Redisson 主要用在五个场景：用户注册和评价提交的"先查后插"并发安全、热门榜单刷新的幂等保护、CacheClient 里的缓存击穿防护，以及热门榜单定时任务的多实例防重复发消息。每个场景的锁粒度都不一样，注册按用户名、评价按用户+订单、缓存按数据 ID、榜单用全局锁。榜单场景还用了两把锁：定时任务里一把防止多实例重复发 MQ 消息，Service 里一把防止消费者并发执行刷新逻辑，职责分离。所有场景都用 tryLock(0, 10, TimeUnit.SECONDS)，不等待，拿不到锁根据业务决定是抛异常、直接返回还是 sleep 重试。释放锁时统一加 isHeldByCurrentThread() 判断，防止锁超时后误释放他人的锁。底层原理上，Redisson 用 Redis Hash 存锁信息实现可重入，用 Lua 脚本保证加锁解锁的原子性，指定 leaseTime 时不触发看门狗，适合短操作场景。

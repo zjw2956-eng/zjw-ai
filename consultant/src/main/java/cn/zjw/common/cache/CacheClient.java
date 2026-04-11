@@ -1,20 +1,25 @@
 package cn.zjw.common.cache;
 
+import java.time.LocalDateTime;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ThreadLocalRandom;
+import java.util.concurrent.TimeUnit;
+import java.util.function.Function;
+
+import org.redisson.api.RLock;
+import org.redisson.api.RedissonClient;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.stereotype.Component;
+
+import cn.hutool.core.lang.TypeReference;
 import cn.hutool.json.JSONUtil;
 import cn.zjw.common.constant.Constants;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
 import lombok.extern.slf4j.Slf4j;
-import org.redisson.api.RLock;
-import org.redisson.api.RedissonClient;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.data.redis.core.StringRedisTemplate;
-import org.springframework.stereotype.Component;
-import java.util.concurrent.ThreadLocalRandom;
-import java.util.concurrent.TimeUnit;
-import java.util.function.Function;
-
 @Component
 @Slf4j
 public class CacheClient {
@@ -23,8 +28,12 @@ public class CacheClient {
      * 空值哨兵（防穿透），必须是固定 raw string，不走 JSON 序列化
      */
     private static final String NULL_SENTINEL = "__NULL__";
-    
 
+    /**
+     * 逻辑过期方案专用线程池，用于异步重建缓存
+     */
+    private static final ExecutorService REBUILD_EXECUTOR =
+            Executors.newFixedThreadPool(Constants.LOGICAL_EXPIRE_THREAD_POOL_SIZE);
 
     @Autowired
     private StringRedisTemplate stringRedisTemplate;
@@ -123,18 +132,19 @@ public class CacheClient {
 
         String key = keyPrefix + id;
         String json = stringRedisTemplate.opsForValue().get(key);
-        // 1) 缓存命中（正常值）
-        if (json != null && !json.isBlank() && !NULL_SENTINEL.equals(json)) {
-            count("cache.hits.total", biz, strategy, "hit");
-            recordLatency(biz, strategy, startNanos);
-            return JSONUtil.toBean(json, type);
-        }
-        // 2) 命中空值哨兵
+        //  命中空值哨兵
         if (NULL_SENTINEL.equals(json)) {
             count("cache.hits.total", biz, strategy, "empty_hit");
             recordLatency(biz, strategy, startNanos);
             return null;
         }
+        //  缓存命中（正常值）
+        if (json != null && !json.isBlank() && !NULL_SENTINEL.equals(json)) {
+            count("cache.hits.total", biz, strategy, "hit");
+            recordLatency(biz, strategy, startNanos);
+            return JSONUtil.toBean(json, type);
+        }
+
         // 3) 缓存未命中
         count("cache.misses.total", biz, strategy, "miss");
         count("cache.db.fallback.total", biz, strategy, "fallback");
@@ -190,77 +200,155 @@ public class CacheClient {
             return null;
         }
 
-         // 3) 缓存未命中
-         count("cache.misses.total", biz, strategy, "miss");
-         String lockKey = lockPrefix + id;
-         RLock lock = redissonClient.getLock(lockKey);
-         boolean locked = false;
-         try {
-             // 抢锁：不等待，拿不到立即返回 false
-             locked = lock.tryLock(
-                Constants.LOCK_GET_TIME, 
-                Constants.LOCK_TTL_SECONDS, 
-                TimeUnit.SECONDS);
-             if (!locked) {
-                 count("cache.lock.total", biz, strategy, "failed");
-                 Thread.sleep(Constants.LOCK_RETRY_SLEEP_MILLIS);
-                 // 重试读缓存
-                 String retryJson = stringRedisTemplate.opsForValue().get(key);
-                 if (retryJson != null && !retryJson.isBlank() && !NULL_SENTINEL.equals(retryJson)) {
-                     count("cache.hits.total", biz, strategy, "retry_hit");
-                     return JSONUtil.toBean(retryJson, type);
-                 }
-                 if (NULL_SENTINEL.equals(retryJson)) {
-                     count("cache.hits.total", biz, strategy, "retry_empty_hit");
-                     return null;
-                 }
-                 // 兜底一次回源（避免大量线程同时打 DB）
-                 count("cache.db.fallback.total", biz, strategy, "fallback_after_lock_fail");
-                 R retryResult = dbFallback.apply(id);
-                 if (retryResult == null) {
-                     setNullValue(key, emptyTtlSeconds, Constants.RANDOM_SECONDS, TimeUnit.SECONDS);
-                     count("cache.write.total", biz, strategy, "null_write");
-                     return null;
-                 }
-                 setWithRandomTtl(key, retryResult, cacheTtlSeconds, Constants.RANDOM_SECONDS, TimeUnit.SECONDS);
-                 count("cache.write.total", biz, strategy, "value_write");
-                 return retryResult;
-             }
-             count("cache.lock.total", biz, strategy, "acquired");
-             // Double check（拿到锁后再查一次缓存）
-             String doubleCheck = stringRedisTemplate.opsForValue().get(key);
-             if (doubleCheck != null && !doubleCheck.isBlank() && !NULL_SENTINEL.equals(doubleCheck)) {
-                 count("cache.hits.total", biz, strategy, "double_check_hit");
-                 return JSONUtil.toBean(doubleCheck, type);
-             }
-             if (NULL_SENTINEL.equals(doubleCheck)) {
-                 count("cache.hits.total", biz, strategy, "double_check_empty_hit");
-                 return null;
-             }
-             // 真正回源
-             count("cache.db.fallback.total", biz, strategy, "fallback_after_lock");
-             R result = dbFallback.apply(id);
-             if (result == null) {
-                 setNullValue(key, emptyTtlSeconds, Constants.RANDOM_SECONDS, TimeUnit.SECONDS);
-                 count("cache.write.total", biz, strategy, "null_write");
-                 return null;
-             }
-             setWithRandomTtl(key, result, cacheTtlSeconds, Constants.RANDOM_SECONDS, TimeUnit.SECONDS);
-             count("cache.write.total", biz, strategy, "value_write");
-             return result;
-         } catch (InterruptedException e) {
-             Thread.currentThread().interrupt();
-             count("cache.errors.total", biz, strategy, "interrupted");
-             throw new RuntimeException("缓存重建被中断", e);
-         } catch (RuntimeException e) {
-             count("cache.errors.total", biz, strategy, "exception");
-             throw e;
-         } finally {
-             if (locked && lock.isHeldByCurrentThread()) {
-                 lock.unlock();
-             }
-             recordLatency(biz, strategy, startNanos);
-         }
+        // 3) 缓存未命中
+        count("cache.misses.total", biz, strategy, "miss");
+        String lockKey = lockPrefix + id;
+        RLock lock = redissonClient.getLock(lockKey);
+        boolean locked = false;
+        try {
+            // 抢锁：不等待，拿不到立即返回 false
+            locked = lock.tryLock(
+                    Constants.LOCK_GET_TIME,
+                    Constants.LOCK_TTL_SECONDS,
+                    TimeUnit.SECONDS);
+            if (!locked) {
+                count("cache.lock.total", biz, strategy, "failed");
+                Thread.sleep(Constants.LOCK_RETRY_SLEEP_MILLIS);
+                // 重试读缓存
+                String retryJson = stringRedisTemplate.opsForValue().get(key);
+                if (NULL_SENTINEL.equals(retryJson)) {
+                    count("cache.hits.total", biz, strategy, "retry_empty_hit");
+                    return null;
+                }
+                if (retryJson != null && !retryJson.isBlank() && !NULL_SENTINEL.equals(retryJson)) {
+                    count("cache.hits.total", biz, strategy, "retry_hit");
+                    return JSONUtil.toBean(retryJson, type);
+                }
 
-     }
+                // // 兜底一次回源（避免大量线程同时打 DB）
+                // count("cache.db.fallback.total", biz, strategy, "fallback_after_lock_fail");
+                // R retryResult = dbFallback.apply(id);
+                // if (retryResult == null) {
+                // setNullValue(key, emptyTtlSeconds, Constants.RANDOM_SECONDS,
+                // TimeUnit.SECONDS);
+                // count("cache.write.total", biz, strategy, "null_write");
+                // return null;
+                // }
+                // setWithRandomTtl(key, retryResult, cacheTtlSeconds, Constants.RANDOM_SECONDS,
+                // TimeUnit.SECONDS);
+                // count("cache.write.total", biz, strategy, "value_write");
+
+                // 缓存还没建好，返回 null 或抛异常，让调用方处理
+                // 不要在这里回源！
+                return null;
+            }
+            count("cache.lock.total", biz, strategy, "acquired");
+            // Double check（拿到锁后再查一次缓存）
+            String doubleCheck = stringRedisTemplate.opsForValue().get(key);
+            if (NULL_SENTINEL.equals(doubleCheck)) {
+                count("cache.hits.total", biz, strategy, "double_check_empty_hit");
+                return null;
+            }
+            if (doubleCheck != null && !doubleCheck.isBlank() && !NULL_SENTINEL.equals(doubleCheck)) {
+                count("cache.hits.total", biz, strategy, "double_check_hit");
+                return JSONUtil.toBean(doubleCheck, type);
+            }
+
+            // 真正回源
+            count("cache.db.fallback.total", biz, strategy, "fallback_after_lock");
+            R result = dbFallback.apply(id);
+            if (result == null) {
+                setNullValue(key, emptyTtlSeconds, Constants.RANDOM_SECONDS, TimeUnit.SECONDS);
+                count("cache.write.total", biz, strategy, "null_write");
+                return null;
+            }
+            setWithRandomTtl(key, result, cacheTtlSeconds, Constants.RANDOM_SECONDS, TimeUnit.SECONDS);
+            count("cache.write.total", biz, strategy, "value_write");
+            return result;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            count("cache.errors.total", biz, strategy, "interrupted");
+            throw new RuntimeException("缓存重建被中断", e);
+        } catch (RuntimeException e) {
+            count("cache.errors.total", biz, strategy, "exception");
+            throw e;
+        } finally {
+            if (locked && lock.isHeldByCurrentThread()) {
+                lock.unlock();
+            }
+            recordLatency(biz, strategy, startNanos);
+        }
+
+    }
+
+    /**
+     * 写入逻辑过期缓存（物理TTL设为7天，逻辑过期时间存在数据里）
+     */
+    public void setWithLogicalExpire(String key, Object value, long logicalTtlSeconds) {
+        CacheData<Object> cacheData = new CacheData<>(value,
+                LocalDateTime.now().plusSeconds(logicalTtlSeconds));
+        stringRedisTemplate.opsForValue().set(key, JSONUtil.toJsonStr(cacheData),
+                Constants.LOGICAL_EXPIRE_PHYSICAL_TTL_SECONDS, TimeUnit.SECONDS);
+    }
+
+    /**
+     * 逻辑过期方案：读缓存
+     * - 未命中：返回 null（需提前预热）
+     * - 命中未过期：直接返回
+     * - 命中已过期：返回旧值 + 异步重建缓存
+     */
+    public <R, ID> R queryWithLogicalExpire(
+            String keyPrefix,
+            String lockPrefix,
+            ID id,
+            Class<R> type,
+            Function<ID, R> dbFallback,
+            long logicalTtlSeconds,
+            String biz) {
+        String key = keyPrefix + id;
+        String json = stringRedisTemplate.opsForValue().get(key);
+
+        // 1) 缓存未命中（冷数据，需预热后才能用此方案）
+        if (json == null || json.isBlank()) {
+            log.warn("[逻辑过期] 缓存未命中，key={}，请检查是否已预热", key);
+            return null;
+        }
+
+        // 2) 反序列化包装对象
+        CacheData<Object> cacheData = JSONUtil.toBean(json,
+                new TypeReference<CacheData<Object>>() {}, false);
+        // hutool 泛型擦除，data 实际是 JSONObject，需要再转一次
+        R data = JSONUtil.toBean(JSONUtil.toJsonStr(cacheData.getData()), type);
+        LocalDateTime expireTime = cacheData.getExpireTime();
+
+        // 3) 未过期，直接返回
+        if (LocalDateTime.now().isBefore(expireTime)) {
+            return data;
+        }
+
+        // 4) 已过期，尝试抢锁异步重建
+        String lockKey = lockPrefix + id;
+        RLock lock = redissonClient.getLock(lockKey);
+        boolean locked = lock.tryLock();
+        if (locked) {
+            // 抢到锁，提交异步重建任务
+            REBUILD_EXECUTOR.submit(() -> {
+                try {
+                    R newData = dbFallback.apply(id);
+                    if (newData != null) {
+                        setWithLogicalExpire(key, newData, logicalTtlSeconds);
+                        log.info("[逻辑过期] 缓存重建完成，key={}", key);
+                    }
+                } catch (Exception e) {
+                    log.error("[逻辑过期] 缓存重建失败，key={}", key, e);
+                } finally {
+                    if (lock.isHeldByCurrentThread()) {
+                        lock.unlock();
+                    }
+                }
+            });
+        }
+        // 无论是否抢到锁，都立刻返回旧数据，不阻塞用户
+        return data;
+    }
 }

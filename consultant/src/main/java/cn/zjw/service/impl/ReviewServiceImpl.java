@@ -33,6 +33,7 @@ import cn.zjw.pojo.entity.Restaurant;
 import cn.zjw.mapper.RestaurantMapper;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Set;
@@ -436,6 +437,9 @@ public class ReviewServiceImpl extends ServiceImpl<ReviewMapper, Review> impleme
         List<Review> reviews = reviewMapper.selectList(wrapper);
 
         Set<Long> restaurantIds = reviews.stream().map(Review::getRestaurantId).collect(Collectors.toSet());
+        if (restaurantIds.isEmpty()) {
+            return new ArrayList<>();
+        }
         List<Restaurant> restaurantList = restaurantMapper.selectBatchIds(restaurantIds);
         Map<Long, Restaurant> restaurantMap = restaurantList.stream()
                 .collect(Collectors.toMap(Restaurant::getId, r -> r));

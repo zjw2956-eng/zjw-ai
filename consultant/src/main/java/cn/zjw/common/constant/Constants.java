@@ -108,4 +108,9 @@ public class Constants {
     // 过期时间随机值
     public static final int RANDOM_SECONDS = 10;
 
+    // 逻辑过期方案：异步重建线程池大小
+    public static final int LOGICAL_EXPIRE_THREAD_POOL_SIZE = 10;
+    // 逻辑过期方案：缓存物理TTL（远大于逻辑过期时间，保证缓存不会真正消失）
+    public static final long LOGICAL_EXPIRE_PHYSICAL_TTL_SECONDS = 7 * 24 * 60 * 60L; // 7天
+
 }

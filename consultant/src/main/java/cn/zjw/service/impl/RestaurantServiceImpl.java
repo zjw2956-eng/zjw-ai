@@ -177,18 +177,32 @@ public class RestaurantServiceImpl extends ServiceImpl<RestaurantMapper, Restaur
     }
 
     /**
-     * 获取或生成餐厅摘要（带缓存）
+     * 获取或生成餐厅摘要（逻辑过期方案）
+     * - 缓存命中未过期：直接返回旧摘要
+     * - 缓存命中已过期：立刻返回旧摘要 + 异步重建
+     * - 缓存未命中（冷启动）：同步生成并写入逻辑过期缓存
      */
     private String getSummary(Long restaurantId) {
-        return cacheClient.queryWithMutex(
+        String key = Constants.REDIS_RESTAURANT_SUMMARY_KEY + restaurantId;
+        // 先尝试逻辑过期读取
+        String cached = cacheClient.queryWithLogicalExpire(
                 Constants.REDIS_RESTAURANT_SUMMARY_KEY,
                 Constants.REDIS_LOCK_RESTAURANT_SUMMARY_KEY,
                 restaurantId,
                 String.class,
                 this::buildSummaryFromDbAndAi,
                 Constants.REDIS_RESTAURANT_SUMMARY_EXPIRE_TIME,
-                Constants.REDIS_EMPTY_KEY_EXPIRE_TIME,
                 "restaurant_summary");
+        if (cached != null) {
+            return cached;
+        }
+        // 缓存未命中（首次/预热缺失），同步生成并写入逻辑过期缓存
+        String summary = buildSummaryFromDbAndAi(restaurantId);
+        if (summary != null) {
+            cacheClient.setWithLogicalExpire(key, summary,
+                    Constants.REDIS_RESTAURANT_SUMMARY_EXPIRE_TIME);
+        }
+        return summary;
     }
 
     /**

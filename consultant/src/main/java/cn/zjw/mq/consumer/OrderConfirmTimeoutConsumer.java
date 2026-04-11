@@ -60,9 +60,6 @@ public class OrderConfirmTimeoutConsumer {
             int updated = orderMapper.updateById(order);
             if (updated > 0) {
                 log.info("订单确认超时自动取消成功，orderNo={}", message.getOrderNo());
-                // TODO: 这里可以发送通知给用户（短信/推送）
-                // notificationService.sendOrderCancelNotice(order.getUserId(),
-                // order.getOrderNo());
             } else {
                 log.error("订单确认超时取消失败，数据库更新返回0，orderNo={}", message.getOrderNo());
             }

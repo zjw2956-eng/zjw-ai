@@ -104,6 +104,10 @@ Function Calling 让模型在回答时可以调用外部函数获取实时数据
 
 推荐流程：用户问"推荐餐厅" → 模型先调 getUserOrderHistory 了解偏好 → 再调 getTopRatedRestaurants 查匹配餐厅 → 综合生成推荐理由。
 
+**遇到过的 Bug：getUserReviews 空集合 SQL 异常**
+
+用户没有任何评价记录时，`getUserReviews` 工具会报 `SQLSyntaxErrorException: WHERE id IN ()`。原因是 `ReviewServiceImpl.getUserReviewHistory` 里，当评价列表为空时，`restaurantIds` 是空 Set，直接传入 `selectBatchIds` 会生成非法 SQL。修复方式是在调用 `selectBatchIds` 前加空集合判断，提前返回空列表。这个 Bug 是在 AI 聊天接口压测中发现的。
+
 ---
 
 # 五、MCP（Model Context Protocol）联网搜索
