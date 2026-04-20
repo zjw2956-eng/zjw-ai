@@ -1,6 +1,18 @@
 #CUSTOM
 application-dev.yaml
 
+#docs
+接口文档.md
+面试素材-实习技术难点.md
+项目难题总结.md
+项目升级规划.md
+项目升级执行计划.md
+AI面试文档.md
+Elasticsearch面试文档.md
+MVC架构说明.
+RabbitMQ面试文档.md
+Redis面试文档.md
+Redisson面试文档.md
 
 # Maven 构建输出
 target/
